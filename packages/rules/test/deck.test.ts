@@ -16,9 +16,10 @@ describe("deck", () => {
     expect(HAND_SIZE).toBe(12)
     expect(TRICKS).toBe(12)
     expect(BID_CAP).toBe(2520)
+    const floors = { 5: 1570, 6: 1390, 7: 1260, 8: 1140, 9: 1050 } as const
     for (const players of [5, 6, 7, 8, 9] as const) {
-      expect(BID_FLOORS[players]).toBe(1260)
-      expect(bidFloor(players)).toBe(1260)
+      expect(BID_FLOORS[players]).toBe(floors[players])
+      expect(bidFloor(players)).toBe(floors[players])
     }
   })
 

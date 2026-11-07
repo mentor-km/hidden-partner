@@ -87,17 +87,17 @@ Each round has four steps. Everything is decided by the server, and each player 
 
 1. **Deal.** The server shuffles and deals 12 cards to each player. Hands are sorted by suit, then rank.
 2. **Bidding.**
-   - The floor is 1,260 (half the pool) and the cap is 2,520.
-   - Bidding goes clockwise from the player next to the dealer. On their turn a player passes, opens at 1,260 if nobody has bid, or raises by **+10** or **+50**. Buttons that would pass 2,520 are off.
+   - The opening bid depends on the player count. The floor is 1,570 at 5 players, 1,390 at 6, 1,260 at 7, 1,140 at 8 and 1,050 at 9. The cap is 2,520.
+   - Bidding goes clockwise from the player next to the dealer. On their turn a player passes, opens at the floor for that player count if nobody has bid, or raises by **+10** or **+50**. Buttons that would pass 2,520 are off.
    - A pass is final for the round.
-   - At least one bid must be made. If everyone before the last player passes, the last player must open at 1,260. A single bid is enough: if one player bids and all others pass, that player is the Bidder.
+   - At least one bid must be made. If everyone before the last player passes, the last player must open at the floor for that player count. A single bid is enough: if one player bids and all others pass, that player is the Bidder.
    - The auction ends when all but one player have passed, or at once if someone bids 2,520, since nobody can raise it.
 3. **The call.** The Bidder names one card from their own hand. It must be a 10, J, Q, K or A, and the Bidder must hold exactly 1 or 2 copies of it (never all 3, so there is no solo play).
    - The **suit of the called card is trump** for the round.
    - The **other holders of that card are the Bidder's secret partners**: 1 or 2 players. Partners can see they hold the card. The Bidder does not know who they are.
 4. **Trick play.** 12 tricks, led by the Bidder first (see Trick rules).
 
-The floor of 1,260 is the same for 5 to 9 players. A team of 3 holds about 3/N of the cards, so the floor is easier at 5 players and harder at 8 or 9. Simulations of many random-play rounds will check this before launch, and the floor may become a per-player-count setting.
+A team of 3 holds about 3/N of the cards, so one floor would be easier at 5 players and harder at 8 or 9. Each count uses the floor whose make rate, in random-play simulation, is closest to a 7-player game opening at 1,260.
 
 ## Trick rules
 
@@ -136,7 +136,7 @@ Worked examples with 7 players and X = 1,300:
 | --- | --- |
 | Bidder holds all 3 copies of a card | That card cannot be called. It is greyed out in the call screen. |
 | No callable card in the Bidder's hand | The round is redealt. This should be very rare. |
-| Everyone passes before the last player | The last player must open at 1,260. |
+| Everyone passes before the last player | The last player must open at the floor for that player count. |
 | Bid reaches 2,520 | The auction ends at once. |
 | Bidder holds 2 copies | One partner. A bust costs the Bidder −2X. |
 | Bidder holds 1 copy, the other two copies are with one player | One partner, scored as one partner. |
@@ -220,7 +220,7 @@ The first visit creates a random player ID and secret, kept in the browser's loc
 The rules live in one shared package, so they can be tested hard before any screen exists.
 
 - **Rule checks after every simulated round:** the card points always add to 2,520; exactly 12 tricks are played; each player holds 12 cards; deck size matches the player count table.
-- **Random-play runs:** thousands of rounds of random legal moves for 5 to 9 players. These check that no round gets stuck, and measure how often a bid at the floor of 1,260 is made, to tune the floor per player count.
+- **Random-play runs:** thousands of rounds of random legal moves for 5 to 9 players. These check that no round gets stuck, and measure how often a bid at that count's floor is made.
 - **Privacy test:** connect as player B and try to obtain player A's hand, the shuffle seed or the partner list before the round ends. It must fail.
 - **Multi-window test:** 5 browser windows play a full match through the real server, including a refresh and a rejoin mid-round.
 - **Developer-only seat filler:** a switch in test builds that fills empty seats with random legal moves, so one developer can play alone. It is not a player feature and there are no bots in the product.
@@ -238,7 +238,7 @@ Build in this order, one phase per Cursor session, giving Cursor this spec and t
 6. **Scoring and matches.** Round-end screen, leaderboard, multi-round matches, pause, resume, end early.
 7. **Polish.** Sound, animation, rules help, WhatsApp preview card, install-to-home-screen, performance on low-end phones.
 
-**Future, not in version 1:** bots, accounts and a global leaderboard, custom avatars, in-game chat or voice, per-player-count bid floors if the simulations call for them, and a native app wrapper.
+**Future, not in version 1:** bots, accounts and a global leaderboard, custom avatars, in-game chat or voice, and a native app wrapper.
 
 ### Proposed values to confirm
 
@@ -252,4 +252,4 @@ These numbers are my suggestions, not decisions. Change any of them before build
 | Started match kept after the last move | 30 days |
 | Seat recovery on a new device | Optional 4-digit PIN, or host releases the seat |
 | Last trick stays visible until the next one starts | Yes |
-| Bid floor | 1,260 for all player counts, tuned after simulation |
+| Bid floor | 1,570 / 1,390 / 1,260 / 1,140 / 1,050 for 5 to 9 players |

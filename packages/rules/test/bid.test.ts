@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { BID_FLOORS, apply, legalBids } from "../src/index.ts"
+import { BID_FLOORS, apply, bidFloor, legalBids } from "../src/index.ts"
 import type { RoundState } from "../src/types.ts"
 import { freshBidding, unwrap } from "./helpers.ts"
 
@@ -27,19 +27,20 @@ describe("bidding", () => {
     const state = freshBidding(7, 3)
     expect(state.phase).toBe("bidding")
     expect(state.toAct).toBe(4)
-    expect(legalBids(state)).toEqual({ pass: true, amounts: [1260] })
+    expect(legalBids(state)).toEqual({ pass: true, amounts: [bidFloor(7)] })
   })
 
-  it("opens only at 1,260 and then raises by 10 or 50", () => {
+  it("opens only at that count's floor and then raises by 10 or 50", () => {
     let state = freshBidding(5, 0)
-    expect(apply(state, { type: "bid", seat: 1, amount: 1270 }).ok).toBe(false)
-    state = unwrap(apply(state, { type: "bid", seat: 1, amount: 1260 }))
-    expect(state.highBid).toBe(1260)
-    expect(apply(state, { type: "bid", seat: 2, amount: 1300 }).ok).toBe(false)
-    state = unwrap(apply(state, { type: "bid", seat: 2, amount: 1270 }))
-    expect(state.highBid).toBe(1270)
-    state = unwrap(apply(state, { type: "bid", seat: 3, amount: 1320 }))
-    expect(state.highBid).toBe(1320)
+    const floor = bidFloor(5)
+    expect(apply(state, { type: "bid", seat: 1, amount: floor + 10 }).ok).toBe(false)
+    state = unwrap(apply(state, { type: "bid", seat: 1, amount: floor }))
+    expect(state.highBid).toBe(floor)
+    expect(apply(state, { type: "bid", seat: 2, amount: floor + 30 }).ok).toBe(false)
+    state = unwrap(apply(state, { type: "bid", seat: 2, amount: floor + 10 }))
+    expect(state.highBid).toBe(floor + 10)
+    state = unwrap(apply(state, { type: "bid", seat: 3, amount: floor + 60 }))
+    expect(state.highBid).toBe(floor + 60)
     expect(state.highBidder).toBe(3)
   })
 
@@ -56,36 +57,39 @@ describe("bidding", () => {
     expect(legalBids(state).amounts).toEqual([2480, 2520])
   })
 
-  it("forces the dealer to open at 1,260 when everyone else has passed", () => {
+  it("forces the dealer to open at that count's floor when everyone else has passed", () => {
     let state = passAllUntil(freshBidding(5, 0), 0)
+    const floor = bidFloor(5)
     expect(state.toAct).toBe(0)
-    expect(legalBids(state)).toEqual({ pass: false, amounts: [1260] })
+    expect(legalBids(state)).toEqual({ pass: false, amounts: [floor] })
     const refused = apply(state, { type: "pass", seat: 0 })
     expect(refused.ok).toBe(false)
-    if (!refused.ok) expect(refused.error).toMatch(/1,260/)
+    if (!refused.ok) expect(refused.error).toMatch(/1,570/)
     expect(state.phase).toBe("bidding")
-    state = unwrap(apply(state, { type: "bid", seat: 0, amount: 1260 }))
+    state = unwrap(apply(state, { type: "bid", seat: 0, amount: floor }))
     expect(state.phase).not.toBe("bidding")
     expect(state.bidder).toBe(0)
-    expect(state.bid).toBe(1260)
+    expect(state.bid).toBe(floor)
   })
 
   it("ends as soon as one bid stands and every other player has passed", () => {
-    let state = unwrap(apply(freshBidding(5, 0), { type: "bid", seat: 1, amount: 1260 }))
+    const floor = bidFloor(5)
+    let state = unwrap(apply(freshBidding(5, 0), { type: "bid", seat: 1, amount: floor }))
     for (const seat of [2, 3, 4, 0]) {
       expect(state.phase).toBe("bidding")
       state = unwrap(apply(state, { type: "pass", seat }))
     }
     expect(state.phase).not.toBe("bidding")
     expect(state.bidder).toBe(1)
-    expect(state.bid).toBe(1260)
+    expect(state.bid).toBe(floor)
     expect(apply(state, { type: "bid", seat: 1, amount: 1270 }).ok).toBe(false)
   })
 
   it("treats a pass as final and skips that seat", () => {
     let state = unwrap(apply(freshBidding(5, 0), { type: "pass", seat: 1 }))
-    state = unwrap(apply(state, { type: "bid", seat: 2, amount: 1260 }))
-    state = unwrap(apply(state, { type: "bid", seat: 3, amount: 1270 }))
+    const floor = bidFloor(5)
+    state = unwrap(apply(state, { type: "bid", seat: 2, amount: floor }))
+    state = unwrap(apply(state, { type: "bid", seat: 3, amount: floor + 10 }))
     const seen: number[] = []
     while (state.phase === "bidding") {
       seen.push(state.toAct!)

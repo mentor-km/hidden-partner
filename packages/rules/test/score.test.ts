@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { scoreChanges, bidMade } from "../src/index.ts"
+import { bidFloor, scoreChanges, bidMade } from "../src/index.ts"
 import type { Card, RoundResult } from "../src/types.ts"
 import { c, completeHands, playHands } from "./helpers.ts"
 
@@ -70,9 +70,11 @@ describe("round scoring", () => {
     const result = state.result!
     expect(result.copiesHeld).toBe(2)
     expect(result.partners).toEqual([1])
+    const floor = bidFloor(5)
+    expect(result.bid).toBe(floor)
     expect(result.teamPoints).toBe(2520)
     expect(result.made).toBe(true)
-    expect(result.scoreChanges).toEqual([2520, 1260, -1260, -1260, -1260])
+    expect(result.scoreChanges).toEqual([floor * 2, floor, -floor, -floor, -floor])
     expectCaptured(result, state.tricks)
   })
 
@@ -88,9 +90,11 @@ describe("round scoring", () => {
     const result = state.result!
     expect(result.copiesHeld).toBe(2)
     expect(result.partners).toEqual([1])
+    const floor = bidFloor(5)
+    expect(result.bid).toBe(floor)
     expect(result.teamPoints).toBe(0)
     expect(result.made).toBe(false)
-    expect(result.scoreChanges).toEqual([-2520, -1260, 1260, 1260, 1260])
+    expect(result.scoreChanges).toEqual([-(floor * 2), -floor, floor, floor, floor])
     expectCaptured(result, state.tricks)
   })
 
@@ -100,9 +104,11 @@ describe("round scoring", () => {
     const result = state.result!
     expect(result.copiesHeld).toBe(1)
     expect(result.partners).toEqual([1, 2])
+    const floor = bidFloor(5)
+    expect(result.bid).toBe(floor)
     expect(result.teamPoints).toBe(0)
     expect(result.made).toBe(false)
-    expect(result.scoreChanges).toEqual([-1260, -1260, -1260, 1260, 1260])
+    expect(result.scoreChanges).toEqual([-floor, -floor, -floor, floor, floor])
     expectCaptured(result, state.tricks)
   })
 })

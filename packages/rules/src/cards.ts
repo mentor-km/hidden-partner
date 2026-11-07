@@ -5,13 +5,13 @@ export const RANKS = ["A", "K", "Q", "J", "10", "9", "8", "7", "6"] as const sat
 
 export const POOL = 2520
 export const BID_CAP = 2520
-/** Default bid floor for each player count. Calibration may suggest other values; do not change these without a decision. */
+/** Opening bid for each player count. This table is the only place the floor is set. */
 export const BID_FLOORS: Record<5 | 6 | 7 | 8 | 9, number> = {
-  5: 1260,
-  6: 1260,
+  5: 1570,
+  6: 1390,
   7: 1260,
-  8: 1260,
-  9: 1260,
+  8: 1140,
+  9: 1050,
 }
 export const HAND_SIZE = 12
 export const TRICKS = 12

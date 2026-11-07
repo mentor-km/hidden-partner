@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { apply, callableCards, legalCalls } from "../src/index.ts"
+import { apply, bidFloor, callableCards, legalCalls } from "../src/index.ts"
 import { c, completeHands, electAtFloor, freshBidding, unwrap } from "./helpers.ts"
 
 function rankSuit(rank: string, suit: string, copy: number) {
@@ -41,7 +41,7 @@ describe("the call", () => {
     state = electAtFloor(state, 0)
     expect(state.phase).toBe("redeal")
     expect(state.bidder).toBe(0)
-    expect(state.bid).toBe(1260)
+    expect(state.bid).toBe(bidFloor(5))
     expect(state.partners).toBeNull()
     expect(state.result).toBeNull()
     expect(state.toAct).toBeNull()
