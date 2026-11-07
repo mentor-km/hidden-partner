@@ -3,6 +3,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     passWithNoTests: true,
-    include: ["packages/**/*.test.ts"],
+    include: ["packages/**/*.test.ts", "apps/server/**/*.test.ts"],
   },
 });

@@ -7,7 +7,8 @@
     "test": "vitest run",
     "simulate": "node --experimental-strip-types packages/rules/scripts/simulate.ts",
     "calibrate": "node --experimental-strip-types packages/rules/scripts/calibrate.ts",
-    "demo": "node --experimental-strip-types packages/rules/scripts/demo.ts"
+    "demo": "node --experimental-strip-types packages/rules/scripts/demo.ts",
+    "lobby-demo": "pnpm --filter @hidden-partner/server lobby-demo"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
