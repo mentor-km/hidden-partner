@@ -5,9 +5,9 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 upload_source_maps = false
 
-# Built by `pnpm build`. Empty until you set the workers.dev address. See DEPLOY.md.
+# Public origin for share links and preview images. See DEPLOY.md.
 [vars]
-PUBLIC_SITE_URL = ""
+PUBLIC_SITE_URL = "https://hidden-partner.connect-f83.workers.dev"
 
 [assets]
 directory = "../web/dist"
