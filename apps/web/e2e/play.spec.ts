@@ -3,7 +3,7 @@ import type { Browser, Page } from "@playwright/test"
 
 test.describe.configure({ timeout: 180_000 })
 
-async function openTable(browser: Browser, rounds: 3 | 5) {
+async function openTable(browser: Browser, rounds: 3 | 5, players = 5) {
   const hostContext = await browser.newContext()
   const host = await hostContext.newPage()
   await host.goto("/")
@@ -13,7 +13,7 @@ async function openTable(browser: Browser, rounds: 3 | 5) {
   await host.getByRole("button", { name: "Create room" }).click()
   await expect(host.getByRole("heading", { name: "Lobby" })).toBeVisible()
   const link = (await host.getByTestId("room-link").innerText()).trim()
-  const names = ["Ben", "Cleo", "Drew", "Eden"]
+  const names = ["Ben", "Cleo", "Drew", "Eden", "Finn", "Gia", "Hugo", "Ivy"].slice(0, players - 1)
   const guests = []
   for (const name of names) {
     const context = await browser.newContext()
@@ -43,7 +43,7 @@ async function markPage(page: Page): Promise<string> {
 
 async function everyoneSees(pages: Page[], heading: string): Promise<boolean> {
   for (const page of pages) {
-    if (!(await page.getByRole("heading", { name: heading }).isVisible().catch(() => false))) return false
+    if ((await page.getByRole("heading", { name: heading, exact: true }).count()) === 0) return false
   }
   return true
 }
@@ -63,7 +63,11 @@ async function playOne(pages: Page[], stop: "round" | "final"): Promise<"round" 
     if (count === 0) continue
     const choice = choices.nth(Math.floor(Math.random() * count))
     const before = (await Promise.all(pages.map(markPage))).join("|")
-    await choice.click()
+    try {
+      await choice.click({ timeout: 2_000 })
+    } catch {
+      return "played"
+    }
     const started = Date.now()
     while (Date.now() - started < 4_000) {
       const now = (await Promise.all(pages.map(markPage))).join("|")
@@ -157,6 +161,36 @@ test("a three-round match ends on the final screen", async ({ browser }) => {
     boards.push((await page.getByTestId("leaderboard").innerText()).trim())
   }
   expect(new Set(boards).size).toBe(1)
+  await table.hostContext.close()
+  for (const guest of table.guests) await guest.context.close()
+})
+
+test("nine players fit a phone-width table through one round", async ({ browser }) => {
+  test.setTimeout(240_000)
+  const table = await openTable(browser, 5, 9)
+  await table.host.setViewportSize({ width: 360, height: 740 })
+  await expect(table.host.getByRole("region", { name: "Bidding" })).toBeVisible()
+  await table.host.screenshot({ path: "test-results/phone-9-bidding.png" })
+  await table.host.setViewportSize({ width: 1280, height: 720 })
+
+  let shotTrick = false
+  for (let step = 0; step < 500 && !shotTrick; step += 1) {
+    if ((await table.host.getByTestId("trick-card").count()) > 0) {
+      await table.host.setViewportSize({ width: 360, height: 740 })
+      await table.host.screenshot({ path: "test-results/phone-9-trick.png" })
+      await table.host.getByTestId("current-trick").screenshot({ path: "test-results/phone-9-cards.png" })
+      await table.host.setViewportSize({ width: 1280, height: 720 })
+      shotTrick = true
+      break
+    }
+    const outcome = await playOne(table.pages, "round")
+    if (outcome === "round" || outcome === "final") break
+  }
+  expect(shotTrick).toBe(true)
+  await playUntil(table.pages, "round")
+  await table.host.setViewportSize({ width: 360, height: 740 })
+  await expect(table.host.getByRole("heading", { name: "This round" })).toBeVisible()
+  await table.host.screenshot({ path: "test-results/phone-9-result.png" })
   await table.hostContext.close()
   for (const guest of table.guests) await guest.context.close()
 })

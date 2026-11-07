@@ -14,6 +14,7 @@ export function LobbyScreen({
   onRemove,
   onRounds,
   onStart,
+  onRetry,
 }: {
   view: RoomView
   reconnecting: boolean
@@ -23,6 +24,7 @@ export function LobbyScreen({
   onRemove: (seat: number) => void
   onRounds: (rounds: number) => void
   onStart: () => void
+  onRetry?: () => void
 }) {
   const reduce = useReducedMotion() === true
   const host = view.you.seat === view.hostSeat
@@ -34,9 +36,14 @@ export function LobbyScreen({
         <h1 className="font-display text-4xl">Lobby</h1>
       </header>
       {reconnecting ? (
-        <p role="status" className="rounded-2xl bg-black/30 px-4 py-3 text-lg">
-          Connection lost. Reconnecting…
-        </p>
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-2xl bg-black/30 px-4 py-3 text-lg">
+          <p>Connection lost. Reconnecting…</p>
+          {onRetry ? (
+            <Button type="button" variant="quiet" className="min-h-11 px-3" onClick={onRetry}>
+              Retry
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {notice ? (
         <p role="alert" className="rounded-2xl bg-black/30 px-4 py-3 text-lg">

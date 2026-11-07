@@ -6,9 +6,13 @@ import { Button } from "../ui.tsx"
 export function RoundResult({
   view,
   onNext,
+  onHome,
+  final = false,
 }: {
   view: RoomView
-  onNext: () => void
+  onNext?: () => void
+  onHome?: () => void
+  final?: boolean
 }) {
   const game = view.game
   const result = game?.seat.result
@@ -16,33 +20,40 @@ export function RoundResult({
   const name = (seat: number) => view.seats.find((item) => item.seat === seat)?.name ?? `Seat ${seat + 1}`
   const team = [result.bidder, ...result.partners]
   const host = view.you.seat === view.hostSeat
+  const winners = (game.winners ?? []).map(name)
+  const partners = result.partners.map(name)
   return (
-    <section data-testid="round-result" className="flex flex-col gap-3">
-      <h1 className="font-display text-4xl">Round result</h1>
-      <p>
-        Bid {points(result.bid)} by {name(result.bidder)}. {result.made ? "Made." : "Bust."}
-      </p>
-      <p>Called card {cardName(result.calledCard)}.</p>
-      <p>Team: {team.map(name).join(", ")}.</p>
-      <p>
-        Team points {points(result.teamPoints)}. Others {points(result.othersPoints)}.
-      </p>
-      <ul className="flex flex-col gap-1">
-        {result.scoreChanges.map((change, seat) => (
-          <li key={seat}>
-            {name(seat)} {delta(change)}
-          </li>
-        ))}
-      </ul>
+    <section data-testid="round-result" aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+      <h1 className="font-display text-4xl">{final ? "Match over" : "Round result"}</h1>
+      <section className="flex flex-col gap-1">
+        <h2 className="font-display text-2xl">This round</h2>
+        <p>
+          Bid {points(result.bid)} by {name(result.bidder)}. {result.made ? "Bid made" : "Bid not made"}.
+        </p>
+        <p>Bidder {name(result.bidder)}. Partners {partners.length > 0 ? partners.join(", ") : "none"}.</p>
+        <p>Called card {cardName(result.calledCard)}.</p>
+        <p>Team: {team.map(name).join(", ")}.</p>
+        <p>
+          Team points {points(result.teamPoints)} against the bid of {points(result.bid)}. Others {points(result.othersPoints)}.
+        </p>
+      </section>
       <Leaderboard view={view} />
-      {host ? (
+      {final && winners.length > 1 ? <p className="text-2xl">Co-winners: {winners.join(", ")}.</p> : null}
+      {final && winners.length === 1 ? <p className="text-2xl">Winner: {winners[0]}.</p> : null}
+      {final && onHome ? (
+        <Button type="button" onClick={onHome}>
+          Back to home
+        </Button>
+      ) : null}
+      {!final && host && onNext ? (
         <Button type="button" data-testid="next-round" data-legal="true" onClick={onNext}>
           Next round
         </Button>
-      ) : (
-        <p>Waiting for host</p>
-      )}
-      <p className="text-base">Round {game.roundNumber} of {view.rounds}. {TRICKS} tricks played.</p>
+      ) : null}
+      {!final && !host ? <p>Waiting for host</p> : null}
+      <p className="text-base">
+        Round {game.roundNumber} of {view.rounds}. {TRICKS} tricks played.
+      </p>
     </section>
   )
 }
@@ -53,15 +64,10 @@ export function FinalScreen({ view, onHome }: { view: RoomView; onHome: () => vo
     (seat) => view.seats.find((item) => item.seat === seat)?.name ?? `Seat ${seat + 1}`,
   )
   return (
-    <section data-testid="final-screen" className="flex flex-col gap-4">
+    <section data-testid="final-screen" aria-live="polite" className="flex flex-col gap-4">
       <h1 className="font-display text-5xl">Match over</h1>
       {names.length > 1 ? <p className="text-2xl">Co-winners: {names.join(", ")}.</p> : null}
       {names.length === 1 ? <p className="text-2xl">Winner: {names[0]}.</p> : null}
-      {game?.seat.result ? (
-        <p>
-          Last bid {points(game.seat.result.bid)} was {game.seat.result.made ? "made" : "a bust"}.
-        </p>
-      ) : null}
       <Leaderboard view={view} />
       <Button type="button" onClick={onHome}>
         Back to home
@@ -71,14 +77,31 @@ export function FinalScreen({ view, onHome }: { view: RoomView; onHome: () => vo
 }
 
 export function Leaderboard({ view }: { view: RoomView }) {
-  const rows = view.game?.leaderboard ?? []
+  const rows = [...(view.game?.leaderboard ?? [])].sort((a, b) => b.total - a.total || a.seat - b.seat)
+  const changes = view.game?.seat.result?.scoreChanges
+  const ranked = rows.map((row, index) => ({
+    row,
+    rank: index === 0 || row.total < rows[index - 1]!.total ? index + 1 : 0,
+  }))
+  let rank = 1
+  for (const item of ranked) {
+    if (item.rank === 0) item.rank = rank
+    else rank = item.rank
+  }
   return (
-    <ol data-testid="leaderboard" className="flex flex-col gap-1 text-lg">
-      {rows.map((row) => (
-        <li key={row.seat}>
-          {row.name} {points(row.total)}
-        </li>
-      ))}
-    </ol>
+    <section className="flex flex-col gap-1">
+      <h2 className="font-display text-2xl">Leaderboard</h2>
+      <ol data-testid="leaderboard" className="flex flex-col gap-1 text-lg">
+        {ranked.map(({ rank: place, row }) => {
+          const change = changes?.[row.seat]
+          return (
+            <li key={row.seat}>
+              {place}. {row.name} {points(row.total)}
+              {change === undefined ? "" : ` ${delta(change)}`}
+            </li>
+          )
+        })}
+      </ol>
+    </section>
   )
 }

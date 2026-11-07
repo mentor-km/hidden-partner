@@ -32,6 +32,21 @@ body {
   height: auto;
 }
 
+.spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 3px solid #f6f0e4;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

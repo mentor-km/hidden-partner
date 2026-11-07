@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { motion, useReducedMotion } from "motion/react"
+import { LayoutGroup, motion, useReducedMotion } from "motion/react"
 import { TRICKS } from "@hidden-partner/rules"
+import type { PlayedCard } from "@hidden-partner/rules"
 import type { ClientMessage } from "../../../server/src/messages.ts"
 import type { RoomView } from "../../../server/src/lobby.ts"
 import { BiddingPanel } from "./BiddingPanel.tsx"
 import { CallPanel } from "./CallPanel.tsx"
+import { CardFace } from "./CardFace.tsx"
 import { HandRack } from "./HandRack.tsx"
-import { cardName, cardsRemaining, lastBidText, suitName } from "./labels.ts"
+import { cardName, cardsRemaining, lastBidText, points, suitName } from "./labels.ts"
 import { loadConfirmPlay, saveConfirmPlay } from "./preferences.ts"
 import { FinalScreen, RoundResult } from "./RoundViews.tsx"
 import { RulesDrawer } from "./RulesDrawer.tsx"
+import { armAudio, loadMuted, playSound, saveMuted } from "./sounds.ts"
 import { Button } from "../ui.tsx"
 
 export function TableScreen({
@@ -19,21 +22,79 @@ export function TableScreen({
   notice,
   onSend,
   onHome,
+  onRetry,
 }: {
   view: RoomView
   reconnecting: boolean
   notice: string | null
   onSend: (message: ClientMessage) => void
   onHome: () => void
+  onRetry?: () => void
 }) {
   const game = view.game
   const [confirm, setConfirm] = useState(loadConfirmPlay)
+  const [muted, setMuted] = useState(loadMuted)
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [partners, setPartners] = useState<string[]>([])
+  const [held, setHeld] = useState<{ plays: PlayedCard[]; winner: number; trickNumber: number } | null>(null)
   const seenPartners = useRef<{ round: number; seats: Set<number> } | null>(null)
+  const lastTrick = useRef<{ plays: PlayedCard[]; trickNumber: number; consumed: boolean } | null>(null)
+  const heard = useRef<{ toAct: number | null; trickLen: number; completed: number; partners: number; phase: string } | null>(null)
   const host = view.you.seat === view.hostSeat
   const reduce = useReducedMotion() === true
+
+  useEffect(() => {
+    const arm = () => armAudio()
+    window.addEventListener("pointerdown", arm)
+    window.addEventListener("keydown", arm)
+    return () => {
+      window.removeEventListener("pointerdown", arm)
+      window.removeEventListener("keydown", arm)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!game) return
+    const seat = game.seat
+    const next = {
+      toAct: seat.toAct,
+      trickLen: seat.currentTrick.length,
+      completed: seat.completedTricks,
+      partners: seat.revealedPartners.length,
+      phase: seat.phase,
+    }
+    const previous = heard.current
+    heard.current = next
+    if (!previous) return
+    if (seat.toAct === view.you.seat && previous.toAct !== seat.toAct) playSound("turn")
+    if (next.trickLen > previous.trickLen || next.completed > previous.completed) playSound("card")
+    if (next.partners > previous.partners) playSound("partner")
+    if (next.phase === "scored" && previous.phase !== "scored") playSound("round")
+  }, [game, view.you.seat])
+
+  useEffect(() => {
+    if (!game || game.seat.phase !== "play") {
+      setHeld(null)
+      return
+    }
+    const trick = game.seat.currentTrick
+    if (trick.length > 0) {
+      lastTrick.current = {
+        plays: trick,
+        trickNumber: game.seat.trickNumber ?? game.seat.completedTricks + 1,
+        consumed: false,
+      }
+      setHeld(null)
+      return
+    }
+    const previous = lastTrick.current
+    if (!previous || previous.consumed || previous.plays.length === 0 || game.seat.leader === null) return
+    previous.consumed = true
+    setHeld({ plays: previous.plays, winner: game.seat.leader, trickNumber: previous.trickNumber })
+    const timer = window.setTimeout(() => setHeld(null), reduce ? 0 : 1000)
+    return () => window.clearTimeout(timer)
+  }, [game, reduce])
 
   useEffect(() => {
     if (!game) return
@@ -50,11 +111,45 @@ export function TableScreen({
     setPartners((current) => [...current, ...fresh.map((seat) => seatName(view, seat))])
   }, [game, view])
 
-  if (!game) return <p>Waiting for the deal.</p>
-  if (view.status === "finished") return <FinalScreen view={view} onHome={onHome} />
+  const frame = {
+    reconnecting,
+    notice,
+    onRetry,
+    muted,
+    onMute: () => {
+      const next = !muted
+      saveMuted(next)
+      setMuted(next)
+    },
+  }
+
+  if (!game) {
+    return (
+      <Frame {...frame}>
+        <div role="status" className="flex flex-1 flex-col items-center justify-center gap-4">
+          <span className="spinner" aria-hidden="true" />
+          <p>Waiting for the deal.</p>
+        </div>
+      </Frame>
+    )
+  }
+  if (view.status === "finished" && game.seat.result) {
+    return (
+      <Frame {...frame}>
+        <RoundResult view={view} final onHome={onHome} />
+      </Frame>
+    )
+  }
+  if (view.status === "finished") {
+    return (
+      <Frame {...frame}>
+        <FinalScreen view={view} onHome={onHome} />
+      </Frame>
+    )
+  }
   if (game.seat.phase === "scored") {
     return (
-      <Frame reconnecting={reconnecting} notice={notice}>
+      <Frame {...frame}>
         <RoundResult view={view} onNext={() => onSend({ type: "next_round" })} />
       </Frame>
     )
@@ -63,8 +158,19 @@ export function TableScreen({
   const seat = game.seat
   const legal = view.status === "playing" ? game.legal : null
   const actor = seat.toAct === null ? null : view.seats.find((item) => item.seat === seat.toAct)
-  const waiting = actor && !actor.connected ? `Waiting for ${actor.name}` : null
+  const status = actor ? (actor.seat === view.you.seat ? "Your turn" : `Waiting for ${actor.name}`) : "Waiting"
   const lead = seat.currentTrick[0]?.card.suit ?? null
+  const youPlayed = seat.currentTrick.some((play) => play.seat === view.you.seat)
+  const ledByOther = seat.currentTrick[0] !== undefined && seat.currentTrick[0].seat !== view.you.seat
+  const holdsLead = lead !== null && seat.hand.some((card) => card.suit === lead)
+  const follow =
+    seat.phase === "play" && ledByOther && !youPlayed && holdsLead && actor?.seat !== view.you.seat
+      ? `You must follow ${suitName(lead)}`
+      : null
+  const shown =
+    seat.currentTrick.length > 0
+      ? { plays: seat.currentTrick, winner: null as number | null, trickNumber: seat.trickNumber }
+      : held
   const snapshot = [
     seat.phase,
     seat.toAct ?? "-",
@@ -76,111 +182,112 @@ export function TableScreen({
   ].join(":")
 
   return (
-    <Frame reconnecting={reconnecting} notice={notice}>
-      <div data-testid="table" data-phase={seat.phase} data-snapshot={snapshot} className="flex min-h-0 flex-1 flex-col gap-2">
-        <header className="flex flex-col gap-1">
-          <p className="text-sm tracking-[0.2em] uppercase">Hidden Partner</p>
-          <h1 className="font-display text-3xl">Round {game.roundNumber}</h1>
-          <p data-testid="your-seat">You are in seat {view.you.seat + 1}.</p>
-          <p data-testid="turn-line" className="text-lg">
-            {waiting ?? (actor ? (actor.seat === view.you.seat ? "Your turn" : `${actor.name}'s turn`) : "Waiting")}
-          </p>
-          {seat.calledCard ? (
-            <p data-testid="trump-line">
-              Trump is {suitName(seat.calledCard.suit)}, called card {cardName(seat.calledCard)}.
+    <Frame {...frame}>
+      <LayoutGroup>
+        <div data-testid="table" data-phase={seat.phase} data-snapshot={snapshot} className="flex min-h-0 flex-1 flex-col gap-1">
+          <header className="flex flex-col gap-1">
+            <p className="text-sm tracking-[0.2em] uppercase">Hidden Partner</p>
+            <h1 className="font-display text-2xl leading-tight">Round {game.roundNumber}</h1>
+            <p data-testid="your-seat">You are in seat {view.you.seat + 1}.</p>
+            <p data-testid="turn-line" aria-live="polite" className="text-lg font-semibold">
+              {status}
             </p>
+            {follow ? (
+              <p data-testid="follow-suit" className="text-base font-semibold">
+                {follow}
+              </p>
+            ) : null}
+            {seat.bid !== null ? <p>Bid {points(seat.bid)}.</p> : null}
+            {seat.calledCard ? (
+              <p data-testid="trump-line">
+                Trump is {suitName(seat.calledCard.suit)}, called card {cardName(seat.calledCard)}.
+              </p>
+            ) : null}
+          </header>
+          <PartnerBanners names={partners} reduce={reduce} />
+          <SeatStrip view={view} />
+          {seat.phase === "bidding" ? <Auction view={view} /> : null}
+          {seat.phase === "play" ? (
+            <section data-testid="current-trick" className="shrink-0 rounded-3xl bg-black/25 px-3 py-2" aria-label="Current trick">
+              <p className="text-lg">Trick {shown?.trickNumber ?? seat.trickNumber ?? seat.completedTricks + 1} of {TRICKS}</p>
+              {shown && shown.plays.length > 0 ? (
+                <ul className="flex flex-wrap items-end justify-center gap-2">
+                  {shown.plays.map((play) => {
+                    const won = shown.winner === play.seat
+                    const flight = `card-${play.card.suit}-${play.card.rank}-${play.card.copy}`
+                    return (
+                      <li
+                        key={flight}
+                        data-testid="trick-card"
+                        data-winner={won ? "true" : "false"}
+                        className={`flex w-16 flex-col items-center gap-1 ${won ? "rounded-xl ring-2 ring-gold" : ""}`}
+                      >
+                        <motion.span layoutId={reduce ? undefined : flight} className="flex w-full">
+                          <CardFace rank={play.card.rank} suit={play.card.suit} large />
+                        </motion.span>
+                        <span className="max-w-full truncate text-center text-sm">
+                          {seatName(view, play.seat)}
+                          {won ? " won" : ""}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : seat.completedTricks > 0 && seat.leader !== null ? (
+                <p>{seatName(view, seat.leader)} won the trick.</p>
+              ) : (
+                <p>No card played yet.</p>
+              )}
+            </section>
           ) : null}
-        </header>
-        <PartnerBanners names={partners} reduce={reduce} />
-        <ol data-testid="seats" className="grid grid-cols-5 gap-1 text-xs leading-tight">
-          {view.seats.map((person) => {
-            const played = seat.currentTrick.some((play) => play.seat === person.seat)
-            const bid = lastBidText(seat.passed[person.seat] ?? false, seat.bids, person.seat)
-            return (
-              <li key={person.seat} className="min-w-0 rounded-xl bg-black/20 px-1 py-1">
-                <p className="truncate font-semibold">
-                  {person.name}
-                  {person.seat === view.you.seat ? " (you)" : ""}
-                </p>
-                <p>
-                  <span
-                    aria-hidden="true"
-                    className={`mr-1 inline-block size-2 rounded-full ${person.connected ? "bg-gold" : "bg-cream/50"}`}
-                  />
-                  {person.connected ? "Online" : "Offline"}
-                  {person.seat === seat.dealer ? " · Dealer" : ""}
-                  {person.seat === seat.toAct ? " · Turn" : ""}
-                  {seat.bidder === person.seat && seat.phase !== "bidding" ? " · Bidder" : ""}
-                  {seat.revealedPartners.includes(person.seat) ? " · Partner" : ""}
-                </p>
-                <p>{cardsRemaining(seat.completedTricks, played)} cards</p>
-                {bid ? <p>{bid}</p> : null}
-              </li>
-            )
-          })}
-        </ol>
-        <section data-testid="current-trick" className="rounded-3xl bg-black/25 px-3 py-3" aria-label="Current trick">
-          <p className="text-lg">
-            {seat.trickNumber ? `Trick ${seat.trickNumber} of ${TRICKS}` : "Trick"}
-          </p>
-          {seat.currentTrick.length === 0 && seat.completedTricks > 0 && seat.leader !== null ? (
-            <p>{seatName(view, seat.leader)} won the trick.</p>
-          ) : null}
-          <ul className="flex flex-col gap-1">
-            {seat.currentTrick.map((play) => (
-              <li key={`${play.seat}${play.card.suit}${play.card.rank}${play.card.copy}`} data-testid="trick-card">
-                {seatName(view, play.seat)} played {cardName(play.card)}
-              </li>
-            ))}
-          </ul>
-        </section>
-        {seat.phase === "bidding" ? (
-          <BiddingPanel
-            playerCount={seat.playerCount}
-            highBid={seat.highBid}
-            highBidderName={seat.highBidder === null ? null : seatName(view, seat.highBidder)}
-            dealer={seat.dealer}
-            you={view.you.seat}
-            toAct={seat.toAct}
-            legal={legal}
-            onPass={() => onSend({ type: "pass" })}
-            onBid={(amount) => onSend({ type: "place_bid", amount })}
-          />
-        ) : null}
-        {seat.phase === "call" ? (
-          <CallPanel
-            calls={legal?.calls ?? null}
-            waitingFor={seat.bidder === null ? null : seatName(view, seat.bidder)}
-            onCall={(card) => onSend({ type: "call_card", suit: card.suit, rank: card.rank })}
-          />
-        ) : null}
-        <HandRack
-          hand={seat.hand}
-          legalPlays={seat.phase === "play" ? legal?.plays ?? null : null}
-          lead={lead}
-          confirm={confirm}
-          onPlay={(card) => onSend({ type: "play_card", suit: card.suit, rank: card.rank, deckIndex: card.copy })}
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <RulesDrawer />
-          <label className="flex min-h-11 items-center gap-2 text-base">
-            <input
-              type="checkbox"
-              checked={confirm}
-              onChange={(event) => {
-                saveConfirmPlay(event.target.checked)
-                setConfirm(event.target.checked)
-              }}
+          {seat.phase === "bidding" ? (
+            <BiddingPanel
+              playerCount={seat.playerCount}
+              highBid={seat.highBid}
+              highBidderName={seat.highBidder === null ? null : seatName(view, seat.highBidder)}
+              dealer={seat.dealer}
+              you={view.you.seat}
+              toAct={seat.toAct}
+              legal={legal}
+              onPass={() => onSend({ type: "pass" })}
+              onBid={(amount) => onSend({ type: "place_bid", amount })}
             />
-            Confirm before playing a card
-          </label>
-          {host ? (
-            <Button type="button" variant="quiet" className="min-h-11 px-3 text-base" onClick={() => setMenuOpen(true)}>
-              Host menu
-            </Button>
           ) : null}
+          {seat.phase === "call" ? (
+            <CallPanel
+              calls={legal?.calls ?? null}
+              waitingFor={seat.bidder === null ? null : seatName(view, seat.bidder)}
+              onCall={(card) => onSend({ type: "call_card", suit: card.suit, rank: card.rank })}
+            />
+          ) : null}
+          <HandRack
+            hand={seat.hand}
+            legalPlays={seat.phase === "play" ? legal?.plays ?? null : null}
+            lead={lead}
+            confirm={confirm}
+            onPlay={(card) => onSend({ type: "play_card", suit: card.suit, rank: card.rank, deckIndex: card.copy })}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <RulesDrawer />
+            <label className="flex min-h-11 items-center gap-2 text-base">
+              <input
+                type="checkbox"
+                checked={confirm}
+                onChange={(event) => {
+                  saveConfirmPlay(event.target.checked)
+                  setConfirm(event.target.checked)
+                }}
+              />
+              Confirm before playing a card
+            </label>
+            {host ? (
+              <Button type="button" variant="quiet" className="min-h-11 px-3 text-base" onClick={() => setMenuOpen(true)}>
+                Host menu
+              </Button>
+            ) : null}
+          </div>
         </div>
-      </div>
+      </LayoutGroup>
       {view.status === "paused" ? (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-felt/90 px-4" role="dialog" aria-label="Match paused">
           <div className="flex max-w-sm flex-col gap-3 rounded-3xl bg-felt-deep px-4 py-5">
@@ -243,6 +350,87 @@ export function TableScreen({
   )
 }
 
+function SeatStrip({ view }: { view: RoomView }) {
+  const seat = view.game?.seat
+  const turnRef = useRef<HTMLLIElement>(null)
+  const toAct = seat?.toAct ?? null
+  useEffect(() => {
+    const node = turnRef.current
+    if (!node || typeof node.scrollIntoView !== "function") return
+    try {
+      node.scrollIntoView({ inline: "center", block: "nearest" })
+    } catch {
+      node.scrollIntoView()
+    }
+  }, [toAct])
+  if (!seat) return null
+  return (
+    <ol data-testid="seats" className="flex shrink-0 gap-1 overflow-x-auto pb-1">
+      {view.seats.map((person) => {
+        const played = seat.currentTrick.some((play) => play.seat === person.seat)
+        const bidding = seat.phase === "bidding"
+        const bid = bidding ? lastBidText(seat.passed[person.seat] ?? false, seat.bids, person.seat) : null
+        const turn = person.seat === seat.toAct
+        return (
+          <li
+            key={person.seat}
+            ref={turn ? turnRef : undefined}
+            data-testid="seat"
+            data-turn={turn ? "true" : "false"}
+            className={`w-[5.5rem] shrink-0 rounded-xl px-1 py-1 text-xs leading-tight ${
+              turn ? "bg-gold/20 ring-2 ring-gold" : "bg-black/20"
+            }`}
+          >
+            <p className="truncate font-semibold">
+              {person.name}
+              {person.seat === view.you.seat ? " (you)" : ""}
+            </p>
+            <p className={person.connected ? "text-[#8dffa8]" : "text-[#ff8d8d]"}>
+              <span
+                aria-hidden="true"
+                className={`mr-1 inline-block size-2 ${
+                  person.connected ? "rounded-full bg-[#3ddc84]" : "rounded-sm bg-[#ff5a5a]"
+                }`}
+              />
+              {person.connected ? "Online" : "Offline"}
+            </p>
+            <p className="flex flex-col">
+              {turn ? <span className="w-fit rounded bg-gold px-1 text-ink">Turn</span> : null}
+              {person.seat === seat.dealer ? <span>Dealer</span> : null}
+              {seat.bidder === person.seat && !bidding ? <span>Bidder</span> : null}
+            </p>
+            {seat.bidder === person.seat && !bidding && seat.bid !== null ? <p>Bid {points(seat.bid)}</p> : null}
+            {bid ? <p>{bid}</p> : null}
+            <p>{cardsRemaining(seat.completedTricks, played)} cards</p>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+function Auction({ view }: { view: RoomView }) {
+  const seat = view.game?.seat
+  if (!seat) return null
+  const passed = view.seats.filter((person) => seat.passed[person.seat])
+  return (
+    <section data-testid="auction" aria-label="Auction" className="rounded-3xl bg-black/25 px-3 py-3">
+      <h2 className="text-lg">Bidding</h2>
+      {seat.bids.length === 0 && passed.length === 0 ? <p>No bid yet.</p> : null}
+      <ol className="flex flex-col gap-1">
+        {seat.bids.map((bid, index) => (
+          <li key={`${bid.seat}-${bid.amount}-${index}`}>
+            {seatName(view, bid.seat)} bid {points(bid.amount)}
+          </li>
+        ))}
+        {passed.map((person) => (
+          <li key={`pass-${person.seat}`}>{person.name} passed</li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
 function PartnerBanners({ names, reduce }: { names: string[]; reduce: boolean }) {
   if (names.length === 0) return null
   return (
@@ -257,9 +445,9 @@ function PartnerBanners({ names, reduce }: { names: string[]; reduce: boolean })
             key={name}
             role="status"
             data-testid="partner-banner"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="rounded-2xl bg-gold px-3 py-2 text-lg font-semibold text-ink"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-2xl bg-gold px-3 py-2 text-lg font-semibold text-ink ring-2 ring-cream"
           >
             {name} is a partner
           </motion.p>
@@ -272,18 +460,40 @@ function PartnerBanners({ names, reduce }: { names: string[]; reduce: boolean })
 function Frame({
   reconnecting,
   notice,
+  onRetry,
+  muted,
+  onMute,
   children,
 }: {
   reconnecting: boolean
   notice: string | null
+  onRetry?: () => void
+  muted: boolean
+  onMute: () => void
   children: ReactNode
 }) {
   return (
     <main className="mx-auto flex h-dvh w-full max-w-5xl flex-col gap-2 overflow-hidden px-2 py-2 sm:px-6">
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="quiet"
+          className="min-h-11 px-3 text-base"
+          aria-pressed={muted}
+          onClick={onMute}
+        >
+          {muted ? "Unmute" : "Mute"}
+        </Button>
+      </div>
       {reconnecting ? (
-        <p role="status" className="rounded-2xl bg-black/30 px-3 py-2 text-lg">
-          Connection lost. Reconnecting…
-        </p>
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-2xl bg-black/30 px-3 py-2 text-lg">
+          <p>Connection lost. Reconnecting…</p>
+          {onRetry ? (
+            <Button type="button" variant="quiet" className="min-h-11 px-3" onClick={onRetry}>
+              Retry
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {notice ? (
         <p role="alert" className="rounded-2xl bg-black/30 px-3 py-2 text-lg">

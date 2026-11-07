@@ -1,7 +1,9 @@
 import { useRef, useState } from "react"
+import { motion, useReducedMotion } from "motion/react"
 import { sortHand } from "@hidden-partner/rules"
 import type { Card, Suit } from "@hidden-partner/rules"
-import { cardName, suitMark } from "./labels.ts"
+import { CardFace } from "./CardFace.tsx"
+import { cardName } from "./labels.ts"
 import { playBlockReason } from "./reasons.ts"
 import { Button } from "../ui.tsx"
 
@@ -21,6 +23,8 @@ export function HandRack({
   const [reason, setReason] = useState<string | null>(null)
   const [pending, setPending] = useState<Card | null>(null)
   const hold = useRef(0)
+  const reduce = useReducedMotion() === true
+  const waiting = legalPlays === null
   const cards = sortHand(hand)
 
   function showReason(next: string) {
@@ -48,22 +52,22 @@ export function HandRack({
       <div data-testid="hand" className="grid grid-cols-6 gap-1 sm:grid-cols-12">
         {cards.map((card) => {
           const blocked = playBlockReason(card, legalPlays, lead)
-          const mark = suitMark(card.suit)
+          const quiet = Boolean(blocked) && !waiting
+          const flight = `card-${card.suit}-${card.rank}-${card.copy}`
           return (
             <button
-              key={`${card.suit}${card.rank}${card.copy}`}
+              key={flight}
               type="button"
               data-testid="hand-card"
               data-legal={blocked ? "false" : "true"}
               data-suit={card.suit}
               data-rank={card.rank}
               data-copy={card.copy}
+              data-waiting={waiting ? "true" : "false"}
               aria-disabled={blocked ? true : undefined}
               aria-label={blocked ? `${cardName(card)}. ${blocked}` : cardName(card)}
-              className={`flex min-h-14 flex-col items-center justify-center rounded-xl border px-0.5 py-1 text-sm font-semibold ${
-                blocked
-                  ? `border-cream/30 bg-black/20 opacity-60 ${mark.red ? "text-[#ffb4b4]" : "text-cream"}`
-                  : `border-gold bg-cream ${mark.red ? "text-[#9d1c2b]" : "text-ink"}`
+              className={`flex min-h-14 items-stretch rounded-xl border p-0.5 ${
+                quiet ? "border-cream/40 opacity-80" : "border-transparent"
               }`}
               onPointerDown={() => {
                 if (!blocked) return
@@ -80,10 +84,9 @@ export function HandRack({
                 else onPlay(card)
               }}
             >
-              <span aria-hidden="true">{card.rank}</span>
-              <span aria-hidden="true">
-                {mark.symbol} {mark.letter}
-              </span>
+              <motion.span layoutId={reduce ? undefined : flight} className="flex w-full">
+                <CardFace rank={card.rank} suit={card.suit} />
+              </motion.span>
             </button>
           )
         })}

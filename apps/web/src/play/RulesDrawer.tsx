@@ -15,33 +15,56 @@ export function RulesDrawer() {
             <section className="flex flex-col gap-2">
               <h3 className="text-xl font-semibold">Bidding</h3>
               <p>
-                Bidding starts with the player beside the dealer and goes clockwise. The first bid is the opening bid
-                for this table size. Later bids raise it by 10 or 50, up to 2,520. A pass is final. If everyone else
-                passes, the dealer must open at the floor. The highest bidder names the called card.
+                The opening bid depends on the player count. The floor is 1,570 at 5 players, 1,390 at 6, 1,260 at 7,
+                1,140 at 8 and 1,050 at 9. The cap is 2,520.
               </p>
+              <p>
+                Bidding goes clockwise from the player next to the dealer. On their turn a player passes, opens at the
+                floor for that player count if nobody has bid, or raises by +10 or +50. Buttons that would pass 2,520
+                are off.
+              </p>
+              <p>A pass is final for the round.</p>
+              <p>
+                At least one bid must be made. If everyone before the last player passes, the last player must open at
+                the floor for that player count. A single bid is enough: if one player bids and all others pass, that
+                player is the Bidder.
+              </p>
+              <p>The auction ends when all but one player have passed, or at once if someone bids 2,520, since nobody can raise it.</p>
             </section>
             <section className="flex flex-col gap-2">
               <h3 className="text-xl font-semibold">The call</h3>
               <p>
-                The bidder names a 10, jack, queen, king, or ace from their hand, and they must hold one or two copies
-                of it, never all three. That suit is trump.
+                The Bidder names one card from their own hand. It must be a 10, J, Q, K or A, and the Bidder must hold
+                exactly 1 or 2 copies of it (never all 3, so there is no solo play).
+              </p>
+              <p>The suit of the called card is trump for the round.</p>
+              <p>
+                The other holders of that card are the Bidder's secret partners: 1 or 2 players. Partners can see they
+                hold the card. The Bidder does not know who they are.
               </p>
             </section>
             <section className="flex flex-col gap-2">
               <h3 className="text-xl font-semibold">Partners</h3>
               <p>
-                Whoever else holds the called card is the bidder's secret partner. Partners are announced when they play
-                it, not before. The bidder's own copies are not announced.
+                When a non-bidder plays the called card, a banner announces them as a partner. Each partner is announced
+                once. The Bidder playing their own copy shows no banner.
               </p>
             </section>
             <section className="flex flex-col gap-2">
-              <h3 className="text-xl font-semibold">Play and scoring</h3>
+              <h3 className="text-xl font-semibold">Scoring</h3>
               <p>
-                Follow the suit that was led when you can. You never have to play trump. The highest trump wins the
-                trick, or the highest card of the led suit if there is no trump. The later identical card wins a tie.
-                There are 12 tricks. The bidder's team makes the bid when the points in its tricks reach the bid. Scores
-                change by the bid, and they are shown only after the round.
+                The Bidder's team (the Bidder plus the partners) wins the round if the card points in the tricks its
+                members captured are at least the bid. Every player's score then changes by a multiple of the bid,
+                called X.
               </p>
+              <p>Bid made: Bidder +2X, each partner +1X, everyone else −1X.</p>
+              <p>Bust, Bidder held 2 copies: Bidder −2X, each partner −1X, everyone else +1X.</p>
+              <p>Bust, Bidder held 1 copy: Bidder −1X, each partner −1X, everyone else +1X.</p>
+              <h3 className="text-xl font-semibold">Worked example</h3>
+              <p>Worked examples with 7 players and X = 1,300:</p>
+              <p>Bid made, Bidder held 1 copy, 2 partners: Bidder +2,600, each partner +1,300, each of the 4 others −1,300.</p>
+              <p>Bust, Bidder held 2 copies, 1 partner: Bidder −2,600, the partner −1,300, each of the 5 others +1,300.</p>
+              <p>Bust, Bidder held 1 copy, 2 partners: Bidder −1,300, each partner −1,300, each of the 4 others +1,300.</p>
             </section>
             <Button type="button" onClick={() => setOpen(false)}>
               Close

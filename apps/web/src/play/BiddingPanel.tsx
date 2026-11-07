@@ -47,6 +47,11 @@ export function BiddingPanel({
         </p>
       ) : null}
       <p className="text-base">A pass is final for this round.</p>
+      {!yourTurn ? (
+        <p id="bid-turn" className="text-base font-semibold">
+          Not your turn
+        </p>
+      ) : null}
       <div className="grid grid-cols-2 gap-2">
         {opening !== null ? (
           <BidButton
@@ -54,24 +59,42 @@ export function BiddingPanel({
             amount={opening}
             legal={can(opening)}
             label={`Open at ${points(opening)}`}
+            describedBy={yourTurn ? undefined : "bid-turn"}
             onBid={onBid}
           />
         ) : null}
-        <BidButton testId="bid-plus-10" amount={raiseTen} legal={can(raiseTen)} label="+10" onBid={onBid} />
-        <BidButton testId="bid-plus-50" amount={raiseFifty} legal={can(raiseFifty)} label="+50" onBid={onBid} />
+        <BidButton
+          testId="bid-plus-10"
+          amount={raiseTen}
+          legal={can(raiseTen)}
+          label="+10"
+          describedBy={yourTurn ? undefined : "bid-turn"}
+          onBid={onBid}
+        />
+        <BidButton
+          testId="bid-plus-50"
+          amount={raiseFifty}
+          legal={can(raiseFifty)}
+          label="+50"
+          describedBy={yourTurn ? undefined : "bid-turn"}
+          onBid={onBid}
+        />
         <BidButton
           testId="bid-cap"
           amount={BID_CAP}
           legal={can(BID_CAP)}
           label={`Bid ${points(BID_CAP)}`}
+          describedBy={yourTurn ? undefined : "bid-turn"}
           onBid={onBid}
         />
         <Button
           type="button"
           variant="quiet"
+          className="min-h-16 text-xl"
           data-testid="bid-pass"
           data-legal={yourTurn && bids?.pass ? "true" : "false"}
           disabled={!yourTurn || !bids?.pass}
+          aria-describedby={yourTurn ? undefined : "bid-turn"}
           onClick={onPass}
         >
           Pass
@@ -86,22 +109,26 @@ function BidButton({
   amount,
   legal,
   label,
+  describedBy,
   onBid,
 }: {
   testId: string
   amount: number | null
   legal: boolean
   label: string
+  describedBy?: string
   onBid: (amount: number) => void
 }) {
   return (
     <Button
       type="button"
       variant="quiet"
+      className="min-h-16 text-xl"
       data-testid={testId}
       data-legal={legal ? "true" : "false"}
       data-amount={amount ?? undefined}
       disabled={!legal || amount === null}
+      aria-describedby={describedBy}
       onClick={() => {
         if (amount !== null) onBid(amount)
       }}

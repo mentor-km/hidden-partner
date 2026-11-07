@@ -25,8 +25,12 @@ export function RoomPage() {
   })
   const { session, send } = useRoom(invalid ? "" : code, invalid ? null : request)
 
-  if (invalid) return <Problem message={invalid} />
-  if (isRoomUnavailable(session.error)) return <Problem message={session.error ?? "Room not found"} />
+  function retry() {
+    setRequest((current) => (current ? { ...current, attempt: current.attempt + 1 } : current))
+  }
+
+  if (invalid) return <Problem message={invalid} onRetry={() => navigate("/")} />
+  if (isRoomUnavailable(session.error)) return <Problem message={session.error ?? "Room not found"} onRetry={retry} />
 
   function submit(value: { code: string; name: string; pin: string }) {
     rememberName(value.name)
@@ -60,6 +64,7 @@ export function RoomPage() {
         notice={session.error}
         onSend={send}
         onHome={() => navigate("/")}
+        onRetry={retry}
       />
     )
   }
@@ -73,6 +78,7 @@ export function RoomPage() {
       onRemove={(seat) => send({ type: "remove_player", seat })}
       onRounds={(rounds) => send({ type: "set_rounds", rounds })}
       onStart={() => send({ type: "start_match" })}
+      onRetry={retry}
     />
   )
 }
