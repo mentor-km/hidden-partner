@@ -14,6 +14,11 @@ export function codeError(input: string): string | null {
   return null
 }
 
+export function shareOrigin(configured: string | undefined, locationOrigin: string): string {
+  const site = (configured ?? "").trim().replace(/\/$/, "")
+  return site || locationOrigin
+}
+
 export function inviteUrl(origin: string, code: string): string {
   return `${origin.replace(/\/$/, "")}/r/${code}`
 }

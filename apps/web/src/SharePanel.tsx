@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react"
 import QRCode from "qrcode"
-import { inviteUrl, whatsAppHref } from "./code.ts"
+import { inviteUrl, shareOrigin, whatsAppHref } from "./code.ts"
 import { Button } from "./ui.tsx"
 
 export function SharePanel({ code }: { code: string }) {
-  const url = inviteUrl(window.location.origin, code)
+  const url = inviteUrl(shareOrigin(import.meta.env.PUBLIC_SITE_URL, window.location.origin), code)
   const [copied, setCopied] = useState(false)
   const [svg, setSvg] = useState("")
   const [canShare, setCanShare] = useState(false)

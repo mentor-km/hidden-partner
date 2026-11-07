@@ -11,6 +11,9 @@ import { parseCreateBody } from "./messages.ts"
 type WSMessage = ArrayBuffer | ArrayBufferView | string
 
 export class RoomServer extends Server<Env> {
+  // Hibernation lets the room sleep while sockets stay open. State is reloaded in onStart.
+  static options = { hibernate: true }
+
   #lobby: Lobby | null = null
   #persistedEventId = 0
 

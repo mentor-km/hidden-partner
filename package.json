@@ -5,7 +5,10 @@
   "packageManager": "pnpm@12.18.0",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "test": "vitest run",
+    "test": "node scripts/ensure-assets.mjs && vitest run",
+    "build": "pnpm --filter @hidden-partner/web build && node scripts/check-web-build.mjs && pnpm --filter @hidden-partner/server run bundle && node scripts/check-worker-bundle.mjs",
+    "deploy": "pnpm test && pnpm build && pnpm --filter @hidden-partner/server run deploy",
+    "smoke": "node --experimental-strip-types scripts/smoke.ts",
     "e2e": "pnpm --filter @hidden-partner/web e2e",
     "simulate": "node --experimental-strip-types packages/rules/scripts/simulate.ts",
     "calibrate": "node --experimental-strip-types packages/rules/scripts/calibrate.ts",

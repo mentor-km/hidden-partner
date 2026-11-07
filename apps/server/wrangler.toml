@@ -2,6 +2,18 @@ name = "hidden-partner"
 main = "src/index.ts"
 compatibility_date = "2026-11-07"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+upload_source_maps = false
+
+# Built by `pnpm build`. Empty until you set the workers.dev address. See DEPLOY.md.
+[vars]
+PUBLIC_SITE_URL = ""
+
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/parties/*"]
 
 [[durable_objects.bindings]]
 name = "Room"

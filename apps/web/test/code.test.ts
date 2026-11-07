@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { codeError, normalizeRoomCode, whatsAppHref } from "../src/code.ts"
+import { codeError, inviteUrl, normalizeRoomCode, shareOrigin, whatsAppHref } from "../src/code.ts"
 import { nameError, pinError, roundsError } from "../src/validate.ts"
 
 describe("room codes", () => {
@@ -16,6 +16,17 @@ describe("room codes", () => {
     expect(codeError("ABC")).toBe("Enter the 6-character room code")
     expect(codeError("OOOOOO")).toBe("That code does not look right")
     expect(codeError("K7NQ2A")).toBeNull()
+  })
+
+  it("uses the configured public site for share links", () => {
+    expect(shareOrigin("", "http://127.0.0.1:5173")).toBe("http://127.0.0.1:5173")
+    expect(shareOrigin(undefined, "http://127.0.0.1:5173")).toBe("http://127.0.0.1:5173")
+    expect(shareOrigin("https://hidden-partner.example.workers.dev/", "http://127.0.0.1:5173")).toBe(
+      "https://hidden-partner.example.workers.dev",
+    )
+    expect(inviteUrl("https://hidden-partner.example.workers.dev", "K7NQ2A")).toBe(
+      "https://hidden-partner.example.workers.dev/r/K7NQ2A",
+    )
   })
 
   it("puts the invite line in the WhatsApp link", () => {
