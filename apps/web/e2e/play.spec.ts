@@ -45,6 +45,37 @@ function boardText(text: string): string {
   return text.replaceAll(" (you)", "").trim()
 }
 
+async function playersClearOfStrip(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const strip = document.querySelector("[data-testid='seats']")
+    const button = document.querySelector("[data-testid='players-button']")
+    if (!(strip instanceof HTMLElement) || !(button instanceof HTMLElement)) return false
+    const area = strip.getBoundingClientRect()
+    const box = button.getBoundingClientRect()
+    const overlaps = area.left < box.right - 1 && area.right > box.left + 1 && area.top < box.bottom - 1 && area.bottom > box.top + 1
+    return !overlaps
+  })
+}
+
+async function adjacentPlayedInView(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const strip = document.querySelector("[data-testid='seats']")
+    if (!(strip instanceof HTMLElement)) return true
+    const playedSeat = strip.getAttribute("data-just-played")
+    const turn = strip.querySelector("[data-turn='true']")
+    if (!playedSeat || !(turn instanceof HTMLElement)) return true
+    const apart = Math.abs(Number(turn.getAttribute("data-seat")) - Number(playedSeat))
+    if (apart !== 1) return true
+    const played = strip.querySelector(`[data-seat="${playedSeat}"]`)
+    if (!(played instanceof HTMLElement)) return false
+    const area = strip.getBoundingClientRect()
+    return [turn, played].every((node) => {
+      const box = node.getBoundingClientRect()
+      return box.width > 0 && box.left >= area.left - 1 && box.right <= area.right + 1
+    })
+  })
+}
+
 async function turnChipInView(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     const strip = document.querySelector("[data-testid='seats']")
@@ -192,11 +223,14 @@ test("nine players fit a phone-width table through one round", async ({ browser 
     const size = table.host.viewportSize()
     await table.host.setViewportSize({ width: 360, height: 740 })
     await expect.poll(() => turnChipInView(table.host)).toBe(true)
+    await expect.poll(() => adjacentPlayedInView(table.host)).toBe(true)
+    await expect.poll(() => playersClearOfStrip(table.host)).toBe(true)
     if (size) await table.host.setViewportSize(size)
   }
   await table.host.setViewportSize({ width: 360, height: 740 })
   await expect(table.host.getByRole("region", { name: "Bidding" })).toBeVisible()
   await checkTurn()
+  await expect.poll(() => playersClearOfStrip(table.host)).toBe(true)
   await table.host.screenshot({ path: "test-results/phone-9-bidding.png" })
   await table.host.setViewportSize({ width: 1280, height: 720 })
 
@@ -205,6 +239,8 @@ test("nine players fit a phone-width table through one round", async ({ browser 
     if (!shotTrick && (await table.host.getByTestId("trick-card").count()) > 0) {
       await table.host.setViewportSize({ width: 360, height: 740 })
       await expect.poll(() => turnChipInView(table.host)).toBe(true)
+      await expect.poll(() => adjacentPlayedInView(table.host)).toBe(true)
+      await expect.poll(() => playersClearOfStrip(table.host)).toBe(true)
       await table.host.screenshot({ path: "test-results/phone-9-trick.png" })
       await table.host.getByTestId("current-trick").screenshot({ path: "test-results/phone-9-cards.png" })
       await table.host.setViewportSize({ width: 1280, height: 720 })

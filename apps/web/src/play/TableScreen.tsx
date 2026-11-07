@@ -183,7 +183,7 @@ export function TableScreen({
   ].join(":")
 
   return (
-    <Frame {...frame}>
+    <Frame {...frame} onPlayers={() => setPlayersOpen(true)}>
       <LayoutGroup>
         <div data-testid="table" data-phase={seat.phase} data-snapshot={snapshot} className="flex min-h-0 flex-1 flex-col gap-1">
           <header className="flex flex-col gap-1">
@@ -210,20 +210,10 @@ export function TableScreen({
             ) : null}
           </header>
           <PartnerBanners names={partners} reduce={reduce} />
-          <div className="flex shrink-0 items-start gap-1">
-            <SeatStrip
-              view={view}
-              justPlayed={seat.currentTrick.at(-1)?.seat ?? held?.plays.at(-1)?.seat ?? null}
-            />
-            <Button
-              type="button"
-              variant="quiet"
-              className="min-h-11 shrink-0 px-3 text-base"
-              onClick={() => setPlayersOpen(true)}
-            >
-              Players
-            </Button>
-          </div>
+          <SeatStrip
+            view={view}
+            justPlayed={seat.currentTrick.at(-1)?.seat ?? held?.plays.at(-1)?.seat ?? null}
+          />
           {seat.phase === "bidding" ? <Auction view={view} /> : null}
           {seat.phase === "play" ? (
             <section data-testid="current-trick" className="shrink-0 rounded-3xl bg-black/25 px-3 py-2" aria-label="Current trick">
@@ -386,7 +376,12 @@ function SeatStrip({ view, justPlayed }: { view: RoomView; justPlayed: number | 
   }, [toAct, justPlayed, reduce, view.seats.length])
   if (!seat) return null
   return (
-    <ol ref={stripRef} data-testid="seats" className="relative flex min-w-0 flex-1 gap-1 overflow-x-auto pb-1">
+    <ol
+      ref={stripRef}
+      data-testid="seats"
+      data-just-played={justPlayed === null ? undefined : justPlayed}
+      className="relative flex w-full shrink-0 gap-1 overflow-x-auto pb-1"
+    >
       {view.seats.map((person) => (
         <SeatCard key={person.seat} view={view} person={person} compact />
       ))}
@@ -401,13 +396,19 @@ function alignStrip(container: HTMLElement, justPlayed: number | null, reduce: b
   const nodes = played && played !== turn ? [turn, played] : [turn]
   const width = container.clientWidth
   if (width <= 0) return
-  const boxes = nodes.map((node) => ({ left: node.offsetLeft, right: node.offsetLeft + node.offsetWidth }))
+  const origin = container.getBoundingClientRect().left
+  const boxes = nodes.map((node) => {
+    const box = node.getBoundingClientRect()
+    const left = box.left - origin + container.scrollLeft
+    return { left, right: left + box.width }
+  })
   const min = Math.min(...boxes.map((box) => box.left))
   const max = Math.max(...boxes.map((box) => box.right))
+  const pad = 2
   let left = container.scrollLeft
-  if (max - min <= width) {
-    if (min < left) left = min
-    else if (max > left + width) left = max - width
+  if (max - min + pad * 2 <= width) {
+    if (min - pad < left) left = min - pad
+    else if (max + pad > left + width) left = max + pad - width
   } else {
     const focus = boxes[0]!
     if (focus.left < left) left = focus.left
@@ -575,6 +576,7 @@ function Frame({
   onRetry,
   muted,
   onMute,
+  onPlayers,
   children,
 }: {
   reconnecting: boolean
@@ -582,11 +584,23 @@ function Frame({
   onRetry?: () => void
   muted: boolean
   onMute: () => void
+  onPlayers?: () => void
   children: ReactNode
 }) {
   return (
     <main className="mx-auto flex h-dvh w-full max-w-5xl flex-col gap-2 overflow-hidden px-2 py-2 sm:px-6">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-2">
+        {onPlayers ? (
+          <Button
+            type="button"
+            variant="quiet"
+            className="min-h-11 px-3 text-base"
+            data-testid="players-button"
+            onClick={onPlayers}
+          >
+            Players
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="quiet"
