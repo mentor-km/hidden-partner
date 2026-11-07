@@ -30,7 +30,7 @@ export function RoundResult({
           Bid {points(result.bid)} by {name(result.bidder)}. {result.made ? "Bid made" : "Bid not made"}.
         </p>
         <p>Bidder {name(result.bidder)}. Partners {partners.length > 0 ? partners.join(", ") : "none"}.</p>
-        <p>Called card {cardName(result.calledCard)}.</p>
+        <p>Partner Card {cardName(result.calledCard)}.</p>
         <p>
           Team points {points(result.teamPoints)} against the bid of {points(result.bid)}. Others {points(result.othersPoints)}.
         </p>
@@ -50,7 +50,7 @@ export function RoundResult({
       ) : null}
       {!final && !host ? <p>Waiting for host</p> : null}
       <p className="text-base">
-        Round {game.roundNumber} of {view.rounds}. {TRICKS} tricks played.
+        Round {game.roundNumber} of {view.rounds}. {TRICKS} hands played.
       </p>
     </section>
   )

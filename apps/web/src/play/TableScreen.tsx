@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { LayoutGroup, motion, useReducedMotion } from "motion/react"
-import { TRICKS } from "@hidden-partner/rules"
+import { TRICKS, bidFloor } from "@hidden-partner/rules"
 import type { PlayedCard } from "@hidden-partner/rules"
 import type { ClientMessage } from "../../../server/src/messages.ts"
 import type { RoomView } from "../../../server/src/lobby.ts"
@@ -9,11 +9,12 @@ import { BiddingPanel } from "./BiddingPanel.tsx"
 import { CallPanel } from "./CallPanel.tsx"
 import { CardFace } from "./CardFace.tsx"
 import { HandRack } from "./HandRack.tsx"
-import { cardName, cardsRemaining, lastBidText, points, suitName } from "./labels.ts"
-import { loadConfirmPlay, saveConfirmPlay } from "./preferences.ts"
+import { cardName, cardsRemaining, lastBidText, points, sameCard, suitName } from "./labels.ts"
 import { FinalScreen, RoundResult } from "./RoundViews.tsx"
 import { RulesDrawer } from "./RulesDrawer.tsx"
 import { armAudio, loadMuted, playSound, saveMuted } from "./sounds.ts"
+import { addToast, Toasts } from "./Toasts.tsx"
+import type { ToastNote } from "./Toasts.tsx"
 import { Button } from "../ui.tsx"
 
 export function TableScreen({
@@ -32,18 +33,32 @@ export function TableScreen({
   onRetry?: () => void
 }) {
   const game = view.game
-  const [confirm, setConfirm] = useState(loadConfirmPlay)
   const [muted, setMuted] = useState(loadMuted)
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmEnd, setConfirmEnd] = useState(false)
-  const [partners, setPartners] = useState<string[]>([])
+  const [notes, setNotes] = useState<ToastNote[]>([])
   const [held, setHeld] = useState<{ plays: PlayedCard[]; winner: number; trickNumber: number } | null>(null)
   const [playersOpen, setPlayersOpen] = useState(false)
+  const sendRef = useRef(onSend)
+  sendRef.current = onSend
   const seenPartners = useRef<{ round: number; seats: Set<number> } | null>(null)
   const lastTrick = useRef<{ plays: PlayedCard[]; trickNumber: number; consumed: boolean } | null>(null)
   const heard = useRef<{ toAct: number | null; trickLen: number; completed: number; partners: number; phase: string } | null>(null)
   const host = view.you.seat === view.hostSeat
   const reduce = useReducedMotion() === true
+
+  useEffect(() => {
+    const root = document.documentElement
+    const body = document.body
+    const previousRoot = root.style.overflow
+    const previousBody = body.style.overflow
+    root.style.overflow = "hidden"
+    body.style.overflow = "hidden"
+    return () => {
+      root.style.overflow = previousRoot
+      body.style.overflow = previousBody
+    }
+  }, [])
 
   useEffect(() => {
     const arm = () => armAudio()
@@ -103,20 +118,83 @@ export function TableScreen({
     const seen = seenPartners.current
     if (!seen || seen.round !== game.roundNumber) {
       seenPartners.current = { round: game.roundNumber, seats: new Set(revealed) }
-      setPartners([])
+      setNotes((current) => current.filter((item) => !item.id.startsWith("partner-")))
       return
     }
     const fresh = revealed.filter((seat) => !seen.seats.has(seat))
     if (fresh.length === 0) return
+    const bidder = game.seat.bidder
+    const bidderName = bidder === null ? "the bidder" : seatName(view, bidder)
     for (const seat of fresh) seen.seats.add(seat)
-    setPartners((current) => [...current, ...fresh.map((seat) => seatName(view, seat))])
+    setNotes((current) =>
+      fresh.reduce(
+        (notes, seat) =>
+          addToast(notes, {
+            id: `partner-${game.roundNumber}-${seat}`,
+            text: `${seatName(view, seat)} is ${bidderName}'s partner`,
+            kind: "timed",
+            testId: "partner-banner",
+          }),
+        current,
+      ),
+    )
   }, [game, view])
 
+  useEffect(() => {
+    if (!notice) return
+    setNotes((current) =>
+      addToast(current, { id: `notice-${notice}`, text: notice, kind: "timed", testId: "notice-toast" }),
+    )
+  }, [notice])
+
+  useEffect(() => {
+    if (!reconnecting) {
+      setNotes((current) => current.filter((item) => item.id !== "reconnecting"))
+      return
+    }
+    setNotes((current) =>
+      addToast(current, {
+        id: "reconnecting",
+        text: "Connection lost. Reconnecting…",
+        kind: "stay",
+        testId: "reconnecting-toast",
+        actionLabel: onRetry ? "Retry" : undefined,
+      }),
+    )
+  }, [reconnecting, onRetry])
+
+  useEffect(() => {
+    if (!game || view.status !== "playing" || reconnecting) return
+    const seat = game.seat
+    if (seat.phase !== "play" || seat.toAct !== view.you.seat || seat.hand.length !== 1) return
+    const handNumber = seat.trickNumber ?? seat.completedTricks + 1
+    if (handNumber !== 12) return
+    const card = seat.hand[0]
+    const legal = game.legal?.plays ?? null
+    if (!card || !legal?.some((play) => sameCard(card, play))) return
+    const storageKey = `hp.autoplay.${view.code}.${game.roundNumber}.${card.suit}.${card.rank}.${card.copy}`
+    if (sessionStorage.getItem(storageKey)) return
+    const timer = window.setTimeout(() => {
+      if (sessionStorage.getItem(storageKey)) return
+      sessionStorage.setItem(storageKey, "1")
+      sendRef.current({ type: "play_card", suit: card.suit, rank: card.rank, deckIndex: card.copy })
+      setNotes((current) =>
+        addToast(current, {
+          id: `auto-${storageKey}`,
+          text: "Last card played automatically",
+          kind: "timed",
+          testId: "auto-play",
+        }),
+      )
+    }, 1_000)
+    return () => window.clearTimeout(timer)
+  }, [game, reconnecting, view.code, view.status, view.you.seat])
+
   const frame = {
-    reconnecting,
-    notice,
     onRetry,
     muted,
+    notes,
+    onDismiss: (id: string) => setNotes((current) => current.filter((item) => item.id !== id)),
     onMute: () => {
       const next = !muted
       saveMuted(next)
@@ -182,117 +260,133 @@ export function TableScreen({
     seat.calledCard ? `${seat.calledCard.suit}${seat.calledCard.rank}` : "-",
   ].join(":")
 
+  const handNumber = shown?.trickNumber ?? seat.trickNumber ?? seat.completedTricks + 1
+  const handsPlayed = seat.completedTricks === 1 ? "1 hand played" : `${seat.completedTricks} hands played`
+
   return (
-    <Frame {...frame} onPlayers={() => setPlayersOpen(true)}>
+    <Frame
+      {...frame}
+      notes={notes}
+      onDismiss={(id) => setNotes((current) => current.filter((item) => item.id !== id))}
+      scroll={false}
+      onPlayers={() => setPlayersOpen(true)}
+      leading={
+        <div data-testid="your-seat" className="min-w-0">
+          <p className="truncate text-base font-semibold">You: {view.you.name}</p>
+          <h1 className="truncate text-sm font-normal">
+            Seat {view.you.seat + 1} · Round {game.roundNumber}
+          </h1>
+        </div>
+      }
+      tools={
+        <>
+          <RulesDrawer />
+          {host ? (
+            <Button type="button" variant="quiet" className="px-2 text-sm" onClick={() => setMenuOpen(true)}>
+              Host menu
+            </Button>
+          ) : null}
+        </>
+      }
+    >
       <LayoutGroup>
-        <div data-testid="table" data-phase={seat.phase} data-snapshot={snapshot} className="flex min-h-0 flex-1 flex-col gap-1">
-          <header className="flex flex-col gap-1">
-            <p className="text-sm tracking-[0.2em] uppercase">Hidden Partner</p>
-            <h1 className="font-display text-2xl leading-tight">Round {game.roundNumber}</h1>
-            <p data-testid="your-seat">You are in seat {view.you.seat + 1}.</p>
-            <p data-testid="turn-line" aria-live="polite" className="text-lg font-semibold">
-              {status}
-            </p>
-            {follow ? (
-              <p data-testid="follow-suit" className="text-base font-semibold">
-                {follow}
-              </p>
-            ) : null}
-            {seat.bid !== null && seat.bidder !== null ? (
-              <p>
-                {seatName(view, seat.bidder)} bid {points(seat.bid)}.
-              </p>
-            ) : null}
-            {seat.calledCard ? (
-              <p data-testid="trump-line">
-                Trump is {suitName(seat.calledCard.suit)}, called card {cardName(seat.calledCard)}.
-              </p>
-            ) : null}
-          </header>
-          <PartnerBanners names={partners} reduce={reduce} />
+        <div data-testid="table" data-phase={seat.phase} data-snapshot={snapshot} className="flex min-h-0 min-w-0 flex-1 flex-col">
           <SeatStrip
             view={view}
             justPlayed={seat.currentTrick.at(-1)?.seat ?? held?.plays.at(-1)?.seat ?? null}
           />
-          {seat.phase === "bidding" ? <Auction view={view} /> : null}
-          {seat.phase === "play" ? (
-            <section data-testid="current-trick" className="shrink-0 rounded-3xl bg-black/25 px-3 py-2" aria-label="Current trick">
-              <p className="text-lg">Trick {shown?.trickNumber ?? seat.trickNumber ?? seat.completedTricks + 1} of {TRICKS}</p>
-              {shown && shown.plays.length > 0 ? (
-                <ul className="flex flex-wrap items-end justify-center gap-2">
-                  {shown.plays.map((play) => {
-                    const won = shown.winner === play.seat
-                    const flight = `card-${play.card.suit}-${play.card.rank}-${play.card.copy}`
-                    return (
-                      <li
-                        key={flight}
-                        data-testid="trick-card"
-                        data-winner={won ? "true" : "false"}
-                        className={`flex w-16 flex-col items-center gap-1 ${won ? "rounded-xl ring-2 ring-gold" : ""}`}
-                      >
-                        <motion.span layoutId={reduce ? undefined : flight} className="flex w-full">
-                          <CardFace rank={play.card.rank} suit={play.card.suit} large />
-                        </motion.span>
-                        <span className="max-w-full truncate text-center text-sm">
-                          {seatName(view, play.seat)}
-                          {won ? " won" : ""}
-                        </span>
-                      </li>
-                    )
-                  })}
-                </ul>
-              ) : seat.completedTricks > 0 && seat.leader !== null ? (
-                <p>{seatName(view, seat.leader)} won the trick.</p>
-              ) : (
-                <p>No card played yet.</p>
-              )}
-            </section>
-          ) : null}
-          {seat.phase === "bidding" ? (
-            <BiddingPanel
-              playerCount={seat.playerCount}
-              highBid={seat.highBid}
-              highBidderName={seat.highBidder === null ? null : seatName(view, seat.highBidder)}
-              dealer={seat.dealer}
-              you={view.you.seat}
-              toAct={seat.toAct}
-              legal={legal}
-              onPass={() => onSend({ type: "pass" })}
-              onBid={(amount) => onSend({ type: "place_bid", amount })}
-            />
-          ) : null}
-          {seat.phase === "call" ? (
-            <CallPanel
-              calls={legal?.calls ?? null}
-              waitingFor={seat.bidder === null ? null : seatName(view, seat.bidder)}
-              onCall={(card) => onSend({ type: "call_card", suit: card.suit, rank: card.rank })}
-            />
-          ) : null}
-          <HandRack
-            hand={seat.hand}
-            legalPlays={seat.phase === "play" ? legal?.plays ?? null : null}
-            lead={lead}
-            confirm={confirm}
-            onPlay={(card) => onSend({ type: "play_card", suit: card.suit, rank: card.rank, deckIndex: card.copy })}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <RulesDrawer />
-            <label className="flex min-h-11 items-center gap-2 text-base">
-              <input
-                type="checkbox"
-                checked={confirm}
-                onChange={(event) => {
-                  saveConfirmPlay(event.target.checked)
-                  setConfirm(event.target.checked)
-                }}
-              />
-              Confirm before playing a card
-            </label>
-            {host ? (
-              <Button type="button" variant="quiet" className="min-h-11 px-3 text-base" onClick={() => setMenuOpen(true)}>
-                Host menu
-              </Button>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {seat.phase === "bidding" ? <Auction view={view} /> : null}
+            {seat.phase === "play" ? (
+              <section data-testid="current-trick" className="rounded-3xl bg-black/25 px-3 py-2" aria-label="Current hand">
+                <p className="text-lg">
+                  Hand {handNumber} of {TRICKS}
+                </p>
+                {shown && shown.plays.length > 0 ? (
+                  <ul className="flex flex-wrap items-end justify-center gap-2">
+                    {shown.plays.map((play) => {
+                      const won = shown.winner === play.seat
+                      const flight = `card-${play.card.suit}-${play.card.rank}-${play.card.copy}`
+                      const who = play.seat === view.you.seat ? "You" : seatName(view, play.seat)
+                      return (
+                        <li
+                          key={flight}
+                          data-testid="trick-card"
+                          data-winner={won ? "true" : "false"}
+                          className={`flex w-16 flex-col items-center gap-1 ${won ? "rounded-xl ring-2 ring-gold" : ""}`}
+                        >
+                          <motion.span layoutId={reduce ? undefined : flight} className="flex w-full">
+                            <CardFace rank={play.card.rank} suit={play.card.suit} large />
+                          </motion.span>
+                          <span className="max-w-full truncate text-center text-sm">
+                            {won ? `${who} won this hand` : who}
+                          </span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : seat.completedTricks > 0 ? (
+                  <p>
+                    {handsPlayed}
+                    {seat.leader !== null
+                      ? `. ${seat.leader === view.you.seat ? "You" : seatName(view, seat.leader)} won this hand`
+                      : ""}
+                  </p>
+                ) : (
+                  <p>No card played yet.</p>
+                )}
+              </section>
             ) : null}
+          </div>
+          <div className="shrink-0">
+            <p data-testid="turn-line" aria-live="polite" className="text-base font-semibold">
+              {status}
+            </p>
+            {follow ? (
+              <p data-testid="follow-suit" className="text-sm font-semibold">
+                {follow}
+              </p>
+            ) : null}
+            {seat.bid !== null && seat.bidder !== null ? (
+              <p className="text-sm">
+                {seatName(view, seat.bidder)} bid {points(seat.bid)}.
+              </p>
+            ) : null}
+            {seat.calledCard ? (
+              <p data-testid="trump-line" className="text-sm">
+                Trump is {suitName(seat.calledCard.suit)}. Partner Card: {cardName(seat.calledCard)}.
+              </p>
+            ) : null}
+            {seat.phase === "bidding" ? (
+              <BiddingPanel
+                playerCount={seat.playerCount}
+                highBid={seat.highBid}
+                highBidderName={seat.highBidder === null ? null : seatName(view, seat.highBidder)}
+                dealer={seat.dealer}
+                you={view.you.seat}
+                toAct={seat.toAct}
+                legal={legal}
+                onPass={() => onSend({ type: "pass" })}
+                onBid={(amount) => onSend({ type: "place_bid", amount })}
+                compact
+              />
+            ) : null}
+            {seat.phase === "call" ? (
+              <CallPanel
+                calls={legal?.calls ?? null}
+                waitingFor={seat.bidder === null ? null : seatName(view, seat.bidder)}
+                onCall={(card) => onSend({ type: "call_card", suit: card.suit, rank: card.rank })}
+              />
+            ) : null}
+            <HandRack
+              hand={seat.hand}
+              legalPlays={seat.phase === "play" ? legal?.plays ?? null : null}
+              lead={lead}
+              onPlay={(card) => onSend({ type: "play_card", suit: card.suit, rank: card.rank, deckIndex: card.copy })}
+              onReason={(text) =>
+                setNotes((current) => addToast(current, { id: `reason-${text}`, text, kind: "timed", testId: "card-reason" }))
+              }
+            />
           </div>
         </div>
       </LayoutGroup>
@@ -369,10 +463,15 @@ function SeatStrip({ view, justPlayed }: { view: RoomView; justPlayed: number | 
     if (!container) return
     const align = () => alignStrip(container, justPlayed, reduce)
     align()
-    if (typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(() => align())
-    observer.observe(container)
-    return () => observer.disconnect()
+    const frame = window.requestAnimationFrame(align)
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => align())
+    observer?.observe(container)
+    window.addEventListener("resize", align)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer?.disconnect()
+      window.removeEventListener("resize", align)
+    }
   }, [toAct, justPlayed, reduce, view.seats.length])
   if (!seat) return null
   return (
@@ -415,9 +514,11 @@ function alignStrip(container: HTMLElement, justPlayed: number | null, reduce: b
     else if (focus.right > left + width) left = focus.right - width
   }
   left = Math.max(0, left)
-  if (Math.abs(left - container.scrollLeft) < 1 || typeof container.scrollTo !== "function") return
+  if (Math.abs(left - container.scrollLeft) < 1) return
+  container.scrollLeft = left
+  if (reduce) return
   try {
-    container.scrollTo({ left, behavior: reduce ? "auto" : "smooth" })
+    container.scrollTo({ left, behavior: "smooth" })
   } catch {
     container.scrollLeft = left
   }
@@ -527,9 +628,11 @@ function Auction({ view }: { view: RoomView }) {
   if (!seat) return null
   const passed = view.seats.filter((person) => seat.passed[person.seat])
   return (
-    <section data-testid="auction" aria-label="Auction" className="rounded-3xl bg-black/25 px-3 py-3">
-      <h2 className="text-lg">Bidding</h2>
-      {seat.bids.length === 0 && passed.length === 0 ? <p>No bid yet.</p> : null}
+    <section data-testid="auction" aria-label="Auction" className="rounded-3xl bg-black/25 px-3 py-2">
+      <h2 className="text-base">Bidding</h2>
+      {seat.bids.length === 0 && passed.length === 0 ? (
+        <p className="text-sm">Opening bid {points(bidFloor(seat.playerCount))}. A pass is final for this round.</p>
+      ) : null}
       <ol className="flex flex-col gap-1">
         {seat.bids.map((bid, index) => (
           <li key={`${bid.seat}-${bid.amount}-${index}`}>
@@ -544,89 +647,55 @@ function Auction({ view }: { view: RoomView }) {
   )
 }
 
-function PartnerBanners({ names, reduce }: { names: string[]; reduce: boolean }) {
-  if (names.length === 0) return null
-  return (
-    <div className="flex flex-col gap-1">
-      {names.map((name) =>
-        reduce ? (
-          <p key={name} role="status" data-testid="partner-banner" className="rounded-2xl bg-gold px-3 py-2 text-lg font-semibold text-ink">
-            {name} is a partner
-          </p>
-        ) : (
-          <motion.p
-            key={name}
-            role="status"
-            data-testid="partner-banner"
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="rounded-2xl bg-gold px-3 py-2 text-lg font-semibold text-ink ring-2 ring-cream"
-          >
-            {name} is a partner
-          </motion.p>
-        ),
-      )}
-    </div>
-  )
-}
-
 function Frame({
-  reconnecting,
-  notice,
   onRetry,
   muted,
   onMute,
   onPlayers,
+  leading,
+  tools,
+  notes = [],
+  onDismiss = () => {},
+  scroll = true,
   children,
 }: {
-  reconnecting: boolean
-  notice: string | null
   onRetry?: () => void
   muted: boolean
   onMute: () => void
   onPlayers?: () => void
+  leading?: ReactNode
+  tools?: ReactNode
+  notes?: ToastNote[]
+  onDismiss?: (id: string) => void
+  scroll?: boolean
   children: ReactNode
 }) {
   return (
-    <main className="mx-auto flex h-dvh w-full max-w-5xl flex-col gap-2 overflow-hidden px-2 py-2 sm:px-6">
-      <div className="flex items-center justify-end gap-2">
-        {onPlayers ? (
-          <Button
-            type="button"
-            variant="quiet"
-            className="min-h-11 px-3 text-base"
-            data-testid="players-button"
-            onClick={onPlayers}
-          >
-            Players
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          variant="quiet"
-          className="min-h-11 px-3 text-base"
-          aria-pressed={muted}
-          onClick={onMute}
-        >
-          {muted ? "Unmute" : "Mute"}
-        </Button>
-      </div>
-      {reconnecting ? (
-        <div role="status" className="flex flex-wrap items-center gap-2 rounded-2xl bg-black/30 px-3 py-2 text-lg">
-          <p>Connection lost. Reconnecting…</p>
-          {onRetry ? (
-            <Button type="button" variant="quiet" className="min-h-11 px-3" onClick={onRetry}>
-              Retry
+    <main className="mx-auto flex h-dvh max-h-dvh min-h-0 w-full max-w-5xl flex-col overflow-hidden px-2 py-1">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-1">
+        <div className="min-w-36">
+          {leading ?? <p className="text-sm tracking-[0.2em] uppercase">Hidden Partner</p>}
+        </div>
+        <div className="flex flex-wrap justify-end gap-1">
+          {tools}
+          {onPlayers ? (
+            <Button
+              type="button"
+              variant="quiet"
+              className="px-2 text-sm"
+              data-testid="players-button"
+              onClick={onPlayers}
+            >
+              Players
             </Button>
           ) : null}
+          <Button type="button" variant="quiet" className="px-2 text-sm" aria-pressed={muted} onClick={onMute}>
+            {muted ? "Unmute" : "Mute"}
+          </Button>
         </div>
-      ) : null}
-      {notice ? (
-        <p role="alert" className="rounded-2xl bg-black/30 px-3 py-2 text-lg">
-          {notice}
-        </p>
-      ) : null}
-      {children}
+      </div>
+      <div className={scroll ? "min-h-0 min-w-0 flex-1 overflow-y-auto" : "flex min-h-0 min-w-0 flex-1 flex-col"}>{children}</div>
+      <Toasts items={notes} onDismiss={onDismiss} onAction={onRetry} />
     </main>
   )
 }

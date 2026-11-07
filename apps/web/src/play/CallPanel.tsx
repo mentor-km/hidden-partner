@@ -12,12 +12,12 @@ export function CallPanel({
   onCall: (card: { suit: Suit; rank: Rank }) => void
 }) {
   if (!calls) {
-    return <p className="text-lg">Waiting for {waitingFor ?? "the bidder"} to name the called card.</p>
+    return <p className="text-base">Waiting for {waitingFor ?? "the bidder"} to name the Partner Card.</p>
   }
   return (
     <section className="flex flex-col gap-2" aria-label="Call a card">
-      <h2 className="font-display text-2xl">Name the called card</h2>
-      {calls.length === 0 ? <p>No card can be called. The round will be dealt again.</p> : null}
+      <h2 className="font-display text-xl">Name the Partner Card</h2>
+      {calls.length === 0 ? <p>No Partner Card can be named. The round will be dealt again.</p> : null}
       <div className="grid grid-cols-2 gap-2">
         {calls.map((card) => (
           <Button

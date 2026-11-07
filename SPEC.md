@@ -60,7 +60,7 @@ A host creates a room in two taps and shares one link. Friends join from any pho
 | --- | --- |
 | Capacity | 5 to 9 seated humans. A 10th person sees "Room full". |
 | Starting | The host's **Start** button turns on at 5 seated players. After the first deal, the players and the round count are locked. |
-| Seating | Seat order is random by default, and the host can rearrange it before starting. Order matters because bidding and play go clockwise. |
+| Seating | Seat order is random. The table does not offer a way to rearrange seats. Order matters because bidding and play go clockwise. |
 | Removing | Before the start, the host can remove a player. |
 | Coming back | The same browser rejoins its seat automatically through the same link. On a new device, the player opens the link and enters their name and the 4-digit PIN they chose when joining (optional), or the host releases the seat. |
 | Host leaves | The match keeps running because the room server runs it. The host role passes to the longest-seated connected player after a short absence (proposed: 2 minutes). |
@@ -108,7 +108,7 @@ The highest trump wins a trick; with no trump, the highest card of the suit led 
 - **Free play:** the Bidder may lead any card. No one has to play trump or the called card, so partners may stay hidden as long as they like. All 12 tricks are always played, so a partner's called card appears by trick 12 at the latest.
 - **Winning a trick:** if any trump was played, the highest trump wins. If not, the highest card of the suit led wins. Other cards cannot win. Order: A, K, Q, J, 10, 9, 8, 7, 6.
 - **Identical cards:** if two or more identical winning cards are played to one trick (for example two A♠), the one played last wins.
-- **Partner reveal:** when a non-bidder plays the called card, a banner announces them as a partner. Each partner is announced once. The Bidder playing their own copy shows no banner.
+- **Partner reveal:** when a non-bidder plays the Partner Card, a toast says "<Partner> is <Bidder>'s partner". Each partner is announced once. The Bidder playing their own copy shows no toast.
 - **No live points:** no running points are shown during the round, per seat or per trick. Captured tricks are face-down. After a trick is won, the winner is highlighted for about 1 second and the cards are swept.
 - **Last trick view (proposed):** the most recent trick stays visible until the next one starts, so players can check what was played.
 
@@ -148,13 +148,15 @@ Worked examples with 7 players and X = 1,300:
 
 ## Screens and experience
 
-The whole game fits on one screen with no page scrolling, on phones (375 to 430 px wide) and desktops (1280 px and up).
+The whole game fits on one screen with no page scrolling, on phones (360 to 430 px wide) and desktops (1280 px and up).
 
-- **Layout:** the viewport is locked to the screen height (100dvh). Only a game log, if one is shown, scrolls, inside its own box.
-- **Table:** seats around a felt table. Each seat shows a name, a turn highlight, the number of cards left, and a Bidder chip, plus a Partner chip once revealed. The centre shows "Trick n of 12" and the cards played, each labelled with the player. The bid and the trump suit are pinned where everyone can see them.
-- **Hand:** a rack docked at the bottom, sorted by suit and rank. Cards that cannot legally be played are dimmed. On short screens the cards scale down so controls are never clipped.
+- **Layout:** the viewport is locked to the screen height (100dvh). The page itself does not scroll. The auction list or the cards played in the current hand scroll inside their own box. Your cards and the action buttons stay pinned at the bottom.
+- **Words on the table:** a trick is called a hand ("Hand 3 of 12", "12 hands played", "You won this hand"). The called card is called the Partner Card ("Trump is hearts. Partner Card: king of hearts"). Your own cards are labelled "Your cards".
+- **Table:** a compact top bar shows "You: <name>", the seat, Players and Mute. Rules and the host menu are in that bar. Seats sit in a strip under it. Each seat shows a name, a turn highlight, the number of cards left, and a Bidder chip. The centre shows "Hand n of 12" and the cards played, each labelled with the player. The bid and the Partner Card stay visible above your cards.
+- **Your cards:** a rack docked at the bottom, two rows of six on a phone, sorted by suit and rank. On your turn, cards you can play are highlighted and the others are dimmed, unless every card can be played, in which case none are dimmed. Off your turn, cards are shown evenly. A tap plays a legal card. A tap on a card you cannot play explains why.
 - **Bidding:** the current high bid, the player to act, and the buttons **Pass**, **+10** and **+50**. Buttons that would pass 2,520 are off.
-- **The call:** the Bidder sees their callable cards (10 to A held once or twice) and picks one. Cards held three times are greyed out. Choosing it sets trump and names the partners secretly.
+- **The call:** the Bidder sees their callable cards (10 to A held once or twice) and picks the Partner Card. Cards held three times are greyed out. Choosing it sets trump and names the partners secretly.
+- **Notices:** partner announcements, warnings and errors are toasts. They leave after a few seconds, and up to three are shown. Paused, waiting for the host, and reconnecting stay until they are resolved.
 - **No live points:** no running totals. The reveal comes only on the round-end screen.
 - **Round-end screen:** partners, team points, bid result, score changes, and the leaderboard. The host has **Next round**.
 - **Rules help:** a short in-app rules page and a first-game walkthrough, since the game is not widely known.

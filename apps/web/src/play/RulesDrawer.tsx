@@ -37,7 +37,7 @@ export function RulesDrawer() {
                 The Bidder names one card from their own hand. It must be a 10, J, Q, K or A, and the Bidder must hold
                 exactly 1 or 2 copies of it (never all 3, so there is no solo play).
               </p>
-              <p>The suit of the called card is trump for the round.</p>
+              <p>The suit of the Partner Card is trump for the round.</p>
               <p>
                 The other holders of that card are the Bidder's secret partners: 1 or 2 players. Partners can see they
                 hold the card. The Bidder does not know who they are.
@@ -46,14 +46,14 @@ export function RulesDrawer() {
             <section className="flex flex-col gap-2">
               <h3 className="text-xl font-semibold">Partners</h3>
               <p>
-                When a non-bidder plays the called card, a banner announces them as a partner. Each partner is announced
-                once. The Bidder playing their own copy shows no banner.
+                When a non-bidder plays the Partner Card, a toast says they are the Bidder's partner, for example "Cleo
+                is Ava's partner". Each partner is announced once. The Bidder playing their own copy shows no toast.
               </p>
             </section>
             <section className="flex flex-col gap-2">
               <h3 className="text-xl font-semibold">Scoring</h3>
               <p>
-                The Bidder's team (the Bidder plus the partners) wins the round if the card points in the tricks its
+                The Bidder's team (the Bidder plus the partners) wins the round if the card points in the hands its
                 members captured are at least the bid. Every player's score then changes by a multiple of the bid,
                 called X.
               </p>

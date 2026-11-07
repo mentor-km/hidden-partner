@@ -5,83 +5,80 @@ import type { Card, Suit } from "@hidden-partner/rules"
 import { CardFace } from "./CardFace.tsx"
 import { cardName } from "./labels.ts"
 import { playBlockReason } from "./reasons.ts"
-import { Button } from "../ui.tsx"
 
 export function HandRack({
   hand,
   legalPlays,
   lead,
-  confirm,
   onPlay,
+  onReason,
 }: {
   hand: Card[]
   legalPlays: { suit: Suit; rank: Card["rank"]; copy: number }[] | null
   lead: Suit | null
-  confirm: boolean
   onPlay: (card: Card) => void
+  onReason?: (reason: string) => void
 }) {
   const [reason, setReason] = useState<string | null>(null)
-  const [pending, setPending] = useState<Card | null>(null)
   const hold = useRef(0)
   const reduce = useReducedMotion() === true
   const waiting = legalPlays === null
   const cards = sortHand(hand)
+  const blocked = cards.map((card) => playBlockReason(card, legalPlays, lead))
+  const split = !waiting && blocked.some((reason) => reason !== null) && blocked.some((reason) => reason === null)
 
   function showReason(next: string) {
-    setReason(next)
+    if (onReason) onReason(next)
+    else setReason(next)
   }
 
   return (
-    <section className="flex flex-col gap-2" aria-label="Your hand">
+    <section className="flex flex-col gap-1" aria-label="Your cards">
+      <p className="text-sm font-semibold">Your cards</p>
       {reason ? (
         <p role="status" data-testid="card-reason" className="rounded-2xl bg-black/30 px-3 py-2 text-base">
           {reason}
         </p>
       ) : null}
-      {pending ? (
-        <div role="dialog" aria-label="Confirm play" className="flex flex-wrap items-center gap-2 rounded-2xl bg-black/30 px-3 py-2">
-          <p className="text-base">Play the {cardName(pending)}?</p>
-          <Button type="button" className="min-h-11 px-3" onClick={() => { onPlay(pending); setPending(null) }}>
-            Play
-          </Button>
-          <Button type="button" variant="quiet" className="min-h-11 px-3" onClick={() => setPending(null)}>
-            Cancel
-          </Button>
-        </div>
-      ) : null}
-      <div data-testid="hand" className="grid grid-cols-6 gap-1 sm:grid-cols-12">
-        {cards.map((card) => {
-          const blocked = playBlockReason(card, legalPlays, lead)
-          const quiet = Boolean(blocked) && !waiting
+      <div data-testid="hand" className="grid w-full grid-cols-6 gap-1 sm:grid-cols-12">
+        {cards.map((card, index) => {
+          const why = blocked[index] ?? null
+          const bright = split && why === null
+          const dim = split && why !== null
           const flight = `card-${card.suit}-${card.rank}-${card.copy}`
           return (
             <button
               key={flight}
               type="button"
               data-testid="hand-card"
-              data-legal={blocked ? "false" : "true"}
+              data-legal={why ? "false" : "true"}
               data-suit={card.suit}
               data-rank={card.rank}
               data-copy={card.copy}
               data-waiting={waiting ? "true" : "false"}
-              aria-disabled={blocked ? true : undefined}
-              aria-label={blocked ? `${cardName(card)}. ${blocked}` : cardName(card)}
-              className={`flex min-h-14 items-stretch rounded-xl border p-0.5 ${
-                quiet ? "border-cream/40 opacity-80" : "border-transparent"
+              data-highlight={bright ? "true" : "false"}
+              data-dimmed={dim ? "true" : "false"}
+              aria-disabled={why ? true : undefined}
+              aria-label={why ? `${cardName(card)}. ${why}` : cardName(card)}
+              className={`flex min-h-12 items-stretch rounded-xl border p-0.5 ${
+                bright
+                  ? "-translate-y-1 border-gold shadow-[0_0_12px_rgba(240,212,138,0.9)] ring-2 ring-gold"
+                  : dim
+                    ? "border-cream/30 opacity-40"
+                    : "border-transparent"
               }`}
               onPointerDown={() => {
-                if (!blocked) return
-                hold.current = window.setTimeout(() => showReason(blocked), 450)
+                if (!why) return
+                hold.current = window.setTimeout(() => showReason(why), 450)
               }}
               onPointerUp={() => window.clearTimeout(hold.current)}
               onPointerLeave={() => window.clearTimeout(hold.current)}
               onClick={() => {
-                if (blocked) {
-                  showReason(blocked)
+                if (why) {
+                  showReason(why)
                   return
                 }
-                if (confirm) setPending(card)
-                else onPlay(card)
+                onPlay(card)
               }}
             >
               <motion.span layoutId={reduce ? undefined : flight} className="flex w-full">

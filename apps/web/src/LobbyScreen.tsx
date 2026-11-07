@@ -10,7 +10,6 @@ export function LobbyScreen({
   reconnecting,
   notice,
   requestedName,
-  onMove,
   onRemove,
   onRounds,
   onStart,
@@ -20,7 +19,6 @@ export function LobbyScreen({
   reconnecting: boolean
   notice: string | null
   requestedName: string
-  onMove: (from: number, to: number) => void
   onRemove: (seat: number) => void
   onRounds: (rounds: number) => void
   onStart: () => void
@@ -65,17 +63,6 @@ export function LobbyScreen({
               return (
                 <li
                   key={seat.name}
-                  draggable={host}
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData("text/plain", String(seat.seat))
-                    event.dataTransfer.effectAllowed = "move"
-                  }}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault()
-                    const from = Number(event.dataTransfer.getData("text/plain"))
-                    if (Number.isInteger(from) && from !== seat.seat) onMove(from, seat.seat)
-                  }}
                   className="rounded-2xl bg-black/20"
                 >
                   <motion.div
@@ -96,29 +83,8 @@ export function LobbyScreen({
                       {isHostSeat ? " · Host" : ""}
                     </p>
                   </div>
-                  {host ? (
+                  {host && !isHostSeat ? (
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="quiet"
-                        className="min-h-11 px-3 text-base"
-                        disabled={seat.seat === 0 || reconnecting}
-                        aria-label={`Move ${seat.name} up`}
-                        onClick={() => onMove(seat.seat, seat.seat - 1)}
-                      >
-                        Up
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="quiet"
-                        className="min-h-11 px-3 text-base"
-                        disabled={seat.seat === count - 1 || reconnecting}
-                        aria-label={`Move ${seat.name} down`}
-                        onClick={() => onMove(seat.seat, seat.seat + 1)}
-                      >
-                        Down
-                      </Button>
-                      {isHostSeat ? null : (
                         <Button
                           type="button"
                           variant="danger"
@@ -129,7 +95,6 @@ export function LobbyScreen({
                         >
                           Remove
                         </Button>
-                      )}
                     </div>
                   ) : null}
                   </motion.div>

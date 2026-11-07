@@ -74,7 +74,6 @@ export function RoomPage() {
       reconnecting={session.phase === "reconnecting"}
       notice={session.error}
       requestedName={request.name}
-      onMove={(from, to) => send({ type: "move_seat", from, to })}
       onRemove={(seat) => send({ type: "remove_player", seat })}
       onRounds={(rounds) => send({ type: "set_rounds", rounds })}
       onStart={() => send({ type: "start_match" })}

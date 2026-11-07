@@ -15,13 +15,11 @@ export function CardFace({
   return (
     <span
       className={`flex flex-col items-center justify-center rounded-lg border border-gold bg-cream font-semibold ${ink} ${
-        large ? "min-h-16 min-w-12 px-1 text-base" : "min-h-14 w-full px-0.5 text-sm"
+        large ? "min-h-16 min-w-12 px-1 text-base" : "min-h-12 w-full px-0.5 text-sm"
       }`}
     >
       <span aria-hidden="true">{rank}</span>
-      <span aria-hidden="true">
-        {mark.symbol} {mark.letter}
-      </span>
+      <span aria-hidden="true">{mark.symbol}</span>
     </span>
   )
 }

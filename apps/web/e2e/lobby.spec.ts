@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-test("five players join by link, the host reorders and removes, the player rejoins, and every seat is dealt once", async ({
+test("five players join by link, the host removes a player, the player rejoins, and every seat is dealt once", async ({
   browser,
 }) => {
   const hostContext = await browser.newContext()
@@ -10,7 +10,7 @@ test("five players join by link, the host reorders and removes, the player rejoi
   await host.getByLabel("Name").fill("Ava")
   await host.getByRole("button", { name: "Create room" }).click()
   await expect(host.getByRole("heading", { name: "Lobby" })).toBeVisible()
-  const link = (await host.getByTestId("room-link").innerText()).trim()
+  const link = new URL((await host.getByTestId("room-link").innerText()).trim()).pathname
 
   const names = ["Ben", "Cleo", "Drew", "Eden"]
   const guests = []
@@ -25,10 +25,7 @@ test("five players join by link, the host reorders and removes, the player rejoi
     guests.push({ name, context, page })
   }
 
-  const before = await host.getByTestId("player-list").innerText()
-  await host.getByRole("button", { name: "Move Eden up" }).click()
-  await expect(host.getByTestId("player-list")).not.toHaveText(before)
-
+  await expect(host.getByRole("button", { name: /Move / })).toHaveCount(0)
   await host.getByRole("button", { name: "Remove Eden" }).click()
   const eden = guests[3]
   if (!eden) throw new Error("Eden did not join")
@@ -58,7 +55,7 @@ test("a new device reclaims a seat with the name and PIN", async ({ browser }) =
   await host.getByRole("button", { name: "Create a room" }).click()
   await host.getByLabel("Name").fill("Ava")
   await host.getByRole("button", { name: "Create room" }).click()
-  const link = (await host.getByTestId("room-link").innerText()).trim()
+  const link = new URL((await host.getByTestId("room-link").innerText()).trim()).pathname
 
   const firstContext = await browser.newContext()
   const first = await firstContext.newPage()

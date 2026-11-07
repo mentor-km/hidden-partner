@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, expect, it, vi } from "vitest"
 import type { Card, Rank, Suit } from "@hidden-partner/rules"
@@ -9,6 +9,7 @@ import { CallPanel } from "../src/play/CallPanel.tsx"
 import { HandRack } from "../src/play/HandRack.tsx"
 import { playBlockReason } from "../src/play/reasons.ts"
 import { TableScreen } from "../src/play/TableScreen.tsx"
+import { Toasts } from "../src/play/Toasts.tsx"
 
 const NAMES = ["Ava", "Ben", "Cleo", "Drew", "Eden"]
 
@@ -41,6 +42,7 @@ function room(patch: {
   trick?: { seat: number; card: Card }[]
   completed?: number
   leader?: number | null
+  hand?: Card[]
 }): RoomView {
   const names = patch.names ?? NAMES
   const you = patch.you ?? 0
@@ -71,7 +73,7 @@ function room(patch: {
         playerCount: names.length,
         dealer: patch.dealer ?? 0,
         phase,
-        hand: dozen(),
+        hand: patch.hand ?? dozen(),
         passed: patch.passed ?? names.map(() => false),
         bids: patch.highBid ? [{ seat: patch.highBidder ?? 1, amount: patch.highBid }] : [],
         highBid: patch.highBid ?? null,
@@ -105,7 +107,10 @@ function room(patch: {
   }
 }
 
-beforeEach(() => localStorage.clear())
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+})
 
 it("enables only the bids the server lists", async () => {
   const floor = bidFloor(5)
@@ -165,7 +170,7 @@ it("enables only the bids the server lists", async () => {
   expect(screen.getByRole("button", { name: "Pass" })).toBeDisabled()
   expect(screen.getByRole("button", { name: "Bid 2,520" })).toBeDisabled()
   expect(screen.getByText("Not your turn")).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: "Pass" }).className).toContain("min-h-16")
+  expect(screen.getByRole("button", { name: "Pass" }).className).toContain("min-h-12")
 
   rerender(
     <BiddingPanel
@@ -209,7 +214,6 @@ it("explains why a card is disabled", async () => {
       hand={[card("C", "K"), card("H", "A")]}
       legalPlays={[{ suit: "C", rank: "K", copy: 0 }]}
       lead="C"
-      confirm={false}
       onPlay={play}
     />,
   )
@@ -221,9 +225,40 @@ it("explains why a card is disabled", async () => {
 })
 
 it("renders all 12 cards in the hand", () => {
-  render(<HandRack hand={dozen()} legalPlays={null} lead={null} confirm={false} onPlay={vi.fn()} />)
+  render(<HandRack hand={dozen()} legalPlays={null} lead={null} onPlay={vi.fn()} />)
   expect(screen.getAllByTestId("hand-card")).toHaveLength(12)
   expect(screen.getByTestId("hand").className).toContain("grid-cols-6")
+  expect(screen.getByLabelText("Your cards")).toBeInTheDocument()
+  expect(screen.getAllByTestId("hand-card").every((card) => card.getAttribute("data-highlight") === "false")).toBe(true)
+  expect(screen.getAllByTestId("hand-card").every((card) => card.getAttribute("data-dimmed") === "false")).toBe(true)
+})
+
+it("highlights playable cards only when some cards are blocked", () => {
+  const { rerender } = render(
+    <HandRack
+      hand={[card("C", "K"), card("H", "A")]}
+      legalPlays={[{ suit: "C", rank: "K", copy: 0 }]}
+      lead="C"
+      onPlay={vi.fn()}
+    />,
+  )
+  expect(screen.getByRole("button", { name: "king of clubs" })).toHaveAttribute("data-highlight", "true")
+  expect(screen.getByRole("button", { name: /ace of hearts/ })).toHaveAttribute("data-dimmed", "true")
+  rerender(
+    <HandRack
+      hand={[card("C", "K"), card("H", "A")]}
+      legalPlays={[
+        { suit: "C", rank: "K", copy: 0 },
+        { suit: "H", rank: "A", copy: 0 },
+      ]}
+      lead={null}
+      onPlay={vi.fn()}
+    />,
+  )
+  for (const button of screen.getAllByTestId("hand-card")) {
+    expect(button).toHaveAttribute("data-highlight", "false")
+    expect(button).toHaveAttribute("data-dimmed", "false")
+  }
 })
 
 it("announces each partner once and skips the bidder", () => {
@@ -234,7 +269,7 @@ it("announces each partner once and skips the bidder", () => {
   )
   expect(screen.queryByTestId("partner-banner")).toBeNull()
   rerender(<TableScreen view={first} reconnecting={false} notice={null} onSend={send} onHome={vi.fn()} />)
-  expect(screen.getByTestId("partner-banner")).toHaveTextContent("Ben is a partner")
+  expect(screen.getByTestId("partner-banner")).toHaveTextContent("Ben is Ava's partner")
   rerender(<TableScreen view={first} reconnecting={false} notice={null} onSend={send} onHome={vi.fn()} />)
   expect(screen.getAllByTestId("partner-banner")).toHaveLength(1)
   rerender(
@@ -247,7 +282,7 @@ it("announces each partner once and skips the bidder", () => {
     />,
   )
   const banners = screen.getAllByTestId("partner-banner").map((banner) => banner.textContent)
-  expect(banners).toEqual(["Ben is a partner", "Cleo is a partner"])
+  expect(banners).toEqual(["Ben is Ava's partner", "Cleo is Ava's partner"])
 })
 
 it("renders the round result from the sample", () => {
@@ -342,7 +377,10 @@ it("shows trick cards with the player who played them", async () => {
   const played = screen.getByTestId("trick-card")
   expect(played).toHaveTextContent("A")
   expect(played).toHaveTextContent("Ben")
-  expect(screen.getByTestId("current-trick")).toHaveTextContent("Trick 1 of 12")
+  expect(screen.getByTestId("current-trick")).toHaveTextContent("Hand 1 of 12")
+  expect(screen.getByTestId("trump-line")).toHaveTextContent("Partner Card: king of hearts")
+  expect(screen.getByTestId("your-seat")).toHaveTextContent("You: Ava")
+  expect(screen.getByTestId("trick-card")).not.toHaveTextContent("C")
   expect(screen.getByTestId("follow-suit")).toHaveTextContent("You must follow clubs")
   for (const cardButton of screen.getAllByTestId("hand-card")) {
     expect(cardButton.className).not.toContain("opacity-60")
@@ -356,7 +394,7 @@ it("shows trick cards with the player who played them", async () => {
       onHome={vi.fn()}
     />,
   )
-  expect(await screen.findByText("Ben won")).toBeInTheDocument()
+  expect(await screen.findByText("Ben won this hand")).toBeInTheDocument()
   expect(screen.getByTestId("trick-card")).toHaveAttribute("data-winner", "true")
 })
 
@@ -425,6 +463,97 @@ it("lists every player in a sheet that can be closed", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Players" }))
   await userEvent.click(screen.getByTestId("players-backdrop"))
   expect(screen.queryByRole("dialog", { name: "Players" })).not.toBeInTheDocument()
+})
+
+it("plays the last card of hand 12 once", async () => {
+  vi.useFakeTimers()
+  try {
+    const send = vi.fn()
+    const view = room({
+      phase: "play",
+      you: 0,
+      toAct: 0,
+      completed: 11,
+      hand: [card("S", "6")],
+      legal: { bids: null, calls: null, plays: [{ suit: "S", rank: "6", copy: 0 }] },
+    })
+    const shown = render(
+      <TableScreen view={view} reconnecting={false} notice={null} onSend={send} onHome={vi.fn()} />,
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(999)
+    })
+    expect(send).not.toHaveBeenCalled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith({ type: "play_card", suit: "S", rank: "6", deckIndex: 0 })
+    expect(screen.getByText("Last card played automatically")).toBeInTheDocument()
+    shown.unmount()
+    const again = render(<TableScreen view={view} reconnecting={false} notice={null} onSend={send} onHome={vi.fn()} />)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    expect(send).toHaveBeenCalledTimes(1)
+    again.unmount()
+    sessionStorage.clear()
+    const pausedSend = vi.fn()
+    render(
+      <TableScreen
+        view={room({
+          status: "paused",
+          phase: "play",
+          you: 0,
+          toAct: 0,
+          completed: 11,
+          hand: [card("C", "7")],
+          legal: { bids: null, calls: null, plays: [{ suit: "C", rank: "7", copy: 0 }] },
+        })}
+        reconnecting={false}
+        notice={null}
+        onSend={pausedSend}
+        onHome={vi.fn()}
+      />,
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    expect(pausedSend).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it("dismisses a toast after 4 seconds and waits while it is held", async () => {
+  vi.useFakeTimers()
+  try {
+    const onDismiss = vi.fn()
+    const { unmount } = render(
+      <Toasts items={[{ id: "1", text: "Cleo is Ava's partner", kind: "timed", testId: "partner-banner" }]} onDismiss={onDismiss} />,
+    )
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(onDismiss).toHaveBeenCalledWith("1")
+    unmount()
+    onDismiss.mockClear()
+    render(
+      <Toasts items={[{ id: "2", text: "Held", kind: "timed" }]} onDismiss={onDismiss} />,
+    )
+    fireEvent.pointerDown(screen.getByText("Held"))
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(onDismiss).not.toHaveBeenCalled()
+    fireEvent.pointerUp(screen.getByText("Held"))
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(onDismiss).toHaveBeenCalledWith("2")
+    onDismiss.mockClear()
+    render(
+      <Toasts items={[{ id: "3", text: "Connection lost. Reconnecting…", kind: "stay" }]} onDismiss={onDismiss} />,
+    )
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(onDismiss).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 it("keeps next round for the host before the last round", () => {

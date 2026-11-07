@@ -42,7 +42,6 @@ function lobby(count: number, host = true, reconnecting = false) {
       reconnecting={reconnecting}
       notice={null}
       requestedName={host ? "Ava" : "Ben"}
-      onMove={vi.fn()}
       onRemove={vi.fn()}
       onRounds={vi.fn()}
       onStart={vi.fn()}
@@ -128,9 +127,8 @@ it("shows how many more players are needed at 4, and the opening bid at 5 and 9"
   }
 })
 
-it("gives the host reorder, remove, rounds and start, and the guest a waiting line", async () => {
+it("gives the host remove, rounds and start, and the guest a waiting line", async () => {
   const user = userEvent.setup()
-  const onMove = vi.fn()
   const onRemove = vi.fn()
   const onRounds = vi.fn()
   const onStart = vi.fn()
@@ -140,15 +138,14 @@ it("gives the host reorder, remove, rounds and start, and the guest a waiting li
       reconnecting={false}
       notice={null}
       requestedName="Ava"
-      onMove={onMove}
       onRemove={onRemove}
       onRounds={onRounds}
       onStart={onStart}
     />,
   )
   expect(screen.getByText(/Host/)).toBeInTheDocument()
-  await user.click(screen.getByRole("button", { name: "Move Ben up" }))
-  expect(onMove).toHaveBeenCalledWith(1, 0)
+  expect(screen.queryByRole("button", { name: /Move / })).not.toBeInTheDocument()
+  expect(screen.getByTestId("player-list").querySelector("[draggable='true']")).toBeNull()
   await user.click(screen.getByRole("button", { name: "Remove Cleo" }))
   expect(onRemove).toHaveBeenCalledWith(2)
   await user.click(screen.getByRole("button", { name: "3" }))
@@ -165,7 +162,6 @@ it("gives the host reorder, remove, rounds and start, and the guest a waiting li
       reconnecting={false}
       notice={null}
       requestedName="Ben"
-      onMove={vi.fn()}
       onRemove={vi.fn()}
       onRounds={vi.fn()}
       onStart={vi.fn()}

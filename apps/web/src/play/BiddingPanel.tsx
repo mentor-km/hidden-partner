@@ -13,6 +13,7 @@ export function BiddingPanel({
   legal,
   onPass,
   onBid,
+  compact = false,
 }: {
   playerCount: number
   highBid: number | null
@@ -23,6 +24,7 @@ export function BiddingPanel({
   legal: LegalChoices | null
   onPass: () => void
   onBid: (amount: number) => void
+  compact?: boolean
 }) {
   const bids = legal?.bids ?? null
   const yourTurn = bids !== null && toAct === you
@@ -34,25 +36,27 @@ export function BiddingPanel({
   const mustOpen = yourTurn && dealer === you && highBid === null && bids?.pass === false
 
   return (
-    <section className="flex flex-col gap-2" aria-label="Bidding">
-      <p className="text-base">Opening bid {points(bidFloor(playerCount))}.</p>
-      <p className="text-lg font-semibold">
-        {highBid === null || !highBidderName
-          ? "No bid yet."
-          : `High bid ${points(highBid)} by ${highBidderName}.`}
-      </p>
+    <section className="flex flex-col gap-1" aria-label="Bidding">
+      {compact ? null : <p className="text-base">Opening bid {points(bidFloor(playerCount))}.</p>}
+      {compact && highBid === null ? null : (
+        <p className={compact ? "text-sm font-semibold" : "text-lg font-semibold"}>
+          {highBid === null || !highBidderName
+            ? "No bid yet."
+            : `High bid ${points(highBid)} by ${highBidderName}.`}
+        </p>
+      )}
       {mustOpen ? (
-        <p data-testid="must-open" className="text-base">
+        <p data-testid="must-open" className="text-sm">
           You must open at {points(bidFloor(playerCount))}.
         </p>
       ) : null}
-      <p className="text-base">A pass is final for this round.</p>
+      {compact ? null : <p className="text-base">A pass is final for this round.</p>}
       {!yourTurn ? (
         <p id="bid-turn" className="text-base font-semibold">
           Not your turn
         </p>
       ) : null}
-      <div className="grid grid-cols-2 gap-2">
+      <div className={compact ? "grid grid-cols-2 gap-1" : "grid grid-cols-2 gap-2"}>
         {opening !== null ? (
           <BidButton
             testId="bid-open"
@@ -61,6 +65,7 @@ export function BiddingPanel({
             label={`Open at ${points(opening)}`}
             describedBy={yourTurn ? undefined : "bid-turn"}
             onBid={onBid}
+            compact={compact}
           />
         ) : null}
         <BidButton
@@ -70,6 +75,7 @@ export function BiddingPanel({
           label="+10"
           describedBy={yourTurn ? undefined : "bid-turn"}
           onBid={onBid}
+          compact={compact}
         />
         <BidButton
           testId="bid-plus-50"
@@ -78,6 +84,7 @@ export function BiddingPanel({
           label="+50"
           describedBy={yourTurn ? undefined : "bid-turn"}
           onBid={onBid}
+          compact={compact}
         />
         <BidButton
           testId="bid-cap"
@@ -86,11 +93,13 @@ export function BiddingPanel({
           label={`Bid ${points(BID_CAP)}`}
           describedBy={yourTurn ? undefined : "bid-turn"}
           onBid={onBid}
+          compact={compact}
         />
         <Button
           type="button"
           variant="quiet"
-          className="min-h-16 text-xl"
+          className={compact ? "px-2 text-sm" : "text-base"}
+          style={compact ? { minHeight: "2.5rem" } : undefined}
           data-testid="bid-pass"
           data-legal={yourTurn && bids?.pass ? "true" : "false"}
           disabled={!yourTurn || !bids?.pass}
@@ -111,6 +120,7 @@ function BidButton({
   label,
   describedBy,
   onBid,
+  compact = false,
 }: {
   testId: string
   amount: number | null
@@ -118,12 +128,14 @@ function BidButton({
   label: string
   describedBy?: string
   onBid: (amount: number) => void
+  compact?: boolean
 }) {
   return (
     <Button
       type="button"
       variant="quiet"
-      className="min-h-16 text-xl"
+      className={compact ? "px-2 text-sm" : "text-base"}
+      style={compact ? { minHeight: "2.5rem" } : undefined}
       data-testid={testId}
       data-legal={legal ? "true" : "false"}
       data-amount={amount ?? undefined}
