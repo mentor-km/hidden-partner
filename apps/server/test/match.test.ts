@@ -32,7 +32,12 @@ const GUESTS = [
 
 const CALL_RANKS = new Set<Rank>(["A", "K", "Q", "J", "10"])
 
-type Watch = { secrets: string[]; pin: string; hashes: string[] }
+type Watch = {
+  secrets: string[]
+  pin: string
+  hashes: string[]
+  seen?: { views: number; hiddenViews: number }
+}
 
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
@@ -263,10 +268,24 @@ function expectNoErrors(lobby: Lobby, before: number) {
   if (error && error.message.type === "error") throw new Error(error.message.message)
 }
 
+function containsCard(value: unknown, card: Card): boolean {
+  if (!value || typeof value !== "object") return false
+  if (!Array.isArray(value) && "suit" in value && "rank" in value && "copy" in value) {
+    const found = value as Card
+    if (found.suit === card.suit && found.rank === card.rank && found.copy === card.copy) return true
+  }
+  const entries = Array.isArray(value) ? value : Object.values(value)
+  return entries.some((item) => containsCard(item, card))
+}
+
 function assertPrivate(lobby: Lobby, before: number, watch: Watch) {
   const saved = requireMatch(lobby)
   const round = saved.round
+  const room = lobby.record()
   const seeds = saved.log.flatMap((entry) => (entry.kind === "deal" ? [entry.seed] : []))
+  const hidden = (round.partners ?? []).filter((partner) => !round.revealedPartners.includes(partner))
+  const seen = new Set<number>()
+  let views = 0
   for (const entry of lobby.messages().slice(before)) {
     const text = JSON.stringify(entry.message)
     for (const secret of watch.secrets) expect(text).not.toContain(secret)
@@ -290,14 +309,21 @@ function assertPrivate(lobby: Lobby, before: number, watch: Watch) {
     }
     if (entry.message.type === "partner") {
       expect(round.revealedPartners).toContain(entry.message.seat)
+      expect(hidden).not.toContain(entry.message.seat)
       continue
     }
     if (entry.message.type !== "view" || !entry.message.game) continue
+    const seatIndex = room.seats.findIndex((seat) => seat.connectionId === entry.connectionId)
     const game = entry.message.game
     const seat = game.seat.seat
+    expect(seatIndex).toBe(seat)
+    expect(entry.message.you.seat).toBe(seat)
+    expect(seen.has(seat)).toBe(false)
+    seen.add(seat)
+    views += 1
     expect(game.seat.hand).toEqual(round.hands[seat])
     expect(game.seat.revealedPartners).toEqual(round.revealedPartners)
-    if (lobby.record().status === "finished") expect(game.winners).toEqual(winners(saved.match))
+    if (room.status === "finished") expect(game.winners).toEqual(winners(saved.match))
     else expect(game.winners).toBeNull()
     if (round.phase === "scored") {
       expect(game.leaderboard?.map((row) => row.total)).toEqual(saved.match.totals)
@@ -307,7 +333,6 @@ function assertPrivate(lobby: Lobby, before: number, watch: Watch) {
       expect(game.leaderboard).toBeNull()
       expect(keysOf(game.seat).has("partners")).toBe(false)
       expect(keysOf(game.seat).has("copiesHeld")).toBe(false)
-      const hidden = (round.partners ?? []).filter((partner) => !round.revealedPartners.includes(partner))
       for (const partner of hidden) expect(game.seat.revealedPartners).not.toContain(partner)
     }
     if (game.seat.seat !== round.toAct) expect(game.legal).toBeNull()
@@ -319,8 +344,32 @@ function assertPrivate(lobby: Lobby, before: number, watch: Watch) {
       const hand = round.hands[other] ?? []
       if (hand.length === 0) continue
       expect(containsHand(entry.message, hand)).toBe(false)
+      for (const card of hand) expect(containsCard(entry.message, card)).toBe(false)
     }
   }
+  room.seats.forEach((seat, index) => {
+    if (seat.connectionId) expect(seen.has(index)).toBe(true)
+  })
+  const stored = JSON.stringify({ room, events: lobby.events() })
+  for (const secret of watch.secrets) expect(stored).not.toContain(secret)
+  expect(stored).not.toContain(`"${watch.pin}"`)
+  const storedKeys = keysOf(room)
+  expect(storedKeys.has("secret")).toBe(false)
+  expect(storedKeys.has("pin")).toBe(false)
+  const events = JSON.stringify(lobby.events())
+  for (const seed of seeds) expect(events).not.toContain(JSON.stringify(seed))
+  expect(hasCardName(lobby.events())).toBe(false)
+  if (watch.seen) {
+    watch.seen.views += views
+    if (hidden.length > 0) watch.seen.hiddenViews += views
+  }
+}
+
+function hasCardName(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false
+  if (!Array.isArray(value) && "suit" in value && "rank" in value) return true
+  const entries = Array.isArray(value) ? value : Object.values(value)
+  return entries.some((item) => hasCardName(item))
 }
 
 function assertSecretsStored(lobby: Lobby, watch: Watch) {
@@ -427,6 +476,62 @@ async function playToFinished(table: Lobby, options?: { watch?: Watch; restore?:
   if (options?.restore && !restored) throw new Error("the round ended before the log could be restored")
   expect(lobby.record().status).toBe("finished")
   return lobby
+}
+
+function findPartnerSeed(playerCount: number): Seed {
+  for (let n = 1; n < 200_000; n += 1) {
+    const seed = [0x5100_0000 + n, 0x5200_0000, 0x5300_0000, 0x5400_0000] as Seed
+    const state = createRound({ playerCount, dealer: 0, seed })
+    const opener = state.toAct
+    if (opener === null) continue
+    const card = callableCards(state.hands[opener] ?? [])[0]
+    if (!card) continue
+    const heldElsewhere = state.hands.some(
+      (hand, seat) => seat !== opener && hand.some((held) => held.suit === card.suit && held.rank === card.rank),
+    )
+    if (heldElsewhere) return seed
+  }
+  throw new Error(`no partner deal for ${playerCount}`)
+}
+
+async function provePrivacy(players: 5 | 9) {
+  const seed = findPartnerSeed(players)
+  const secrets = [SECRET, ...GUESTS.slice(0, players - 1).map((guest) => `secret-${guest[1]}`)]
+  const seen = { views: 0, hiddenViews: 0 }
+  const watch: Watch = {
+    secrets,
+    pin: PIN,
+    hashes: [...(await Promise.all(secrets.map((secret) => sha256Hex(secret)))), await sha256Hex(PIN)],
+    seen,
+  }
+  const { lobby } = await seat({ players, rounds: 1, pin: PIN, lock: true, seed: () => seed })
+  const firstGame = lobby.messages().findIndex((entry) => entry.message.type === "view" && entry.message.game)
+  expect(firstGame).toBeGreaterThanOrEqual(0)
+  assertPrivate(lobby, firstGame, watch)
+  const done = await playToFinished(lobby, { watch })
+  assertSecretsStored(done, watch)
+  const saved = requireMatch(done)
+  expect(saved.log.filter((entry) => entry.kind === "deal")).toHaveLength(1)
+  expect(saved.round.phase).toBe("scored")
+  expect(saved.round.tricks).toHaveLength(12)
+  expect(done.messages().some((entry) => entry.message.type === "partner")).toBe(true)
+  expect(seen.hiddenViews).toBeGreaterThan(0)
+  const sent = JSON.stringify(done.messages())
+  for (const secret of secrets) expect(sent).not.toContain(secret)
+  expect(sent).not.toContain(`"${PIN}"`)
+  for (const hash of watch.hashes) expect(sent).not.toContain(hash)
+  expect(sent).not.toContain(JSON.stringify(seed))
+  expect(JSON.stringify(done.record())).toContain(JSON.stringify(seed))
+  let auction = 0
+  let calls = 0
+  let plays = 0
+  for (const entry of saved.log) {
+    if (entry.kind !== "action") continue
+    if (entry.action.type === "bid" || entry.action.type === "pass") auction += 1
+    else if (entry.action.type === "call") calls += 1
+    else if (entry.action.type === "play") plays += 1
+  }
+  return { actions: auction + calls + plays, auction, calls, plays, views: seen.views }
 }
 
 function expectDealShape(lobby: Lobby, players: 5 | 9) {
@@ -585,27 +690,10 @@ describe("match", () => {
     await expectRejected(lobby, guest, { type: "end_match" }, "Only the host can do that")
   })
 
-  it("shows each seat only its own cards, and never the seed or a hidden partner", async () => {
-    const found = findSeed(5, 0, "callable")
-    const secrets = [SECRET, ...GUESTS.slice(0, 4).map((guest) => `secret-${guest[1]}`)]
-    const watch = {
-      secrets,
-      pin: PIN,
-      hashes: [...(await Promise.all(secrets.map((secret) => sha256Hex(secret)))), await sha256Hex(PIN)],
-    }
-    const { lobby } = await seat({
-      players: 5,
-      rounds: 1,
-      pin: PIN,
-      lock: true,
-      seed: () => found.seed,
-    })
-    const done = await playToFinished(lobby, { watch })
-    assertSecretsStored(done, watch)
-    expect(done.messages().some((entry) => entry.message.type === "partner")).toBe(true)
-    expect(JSON.stringify(done.record())).toContain(JSON.stringify(found.seed))
-    expect(JSON.stringify(done.messages())).not.toContain(JSON.stringify(found.seed))
-  })
+  it("checks every seat after every accepted action of a five-player round and a nine-player round", async () => {
+    expect(await provePrivacy(5)).toEqual({ actions: 66, auction: 5, calls: 1, plays: 60, views: 335 })
+    expect(await provePrivacy(9)).toEqual({ actions: 118, auction: 9, calls: 1, plays: 108, views: 1071 })
+  }, 60_000)
 
   it("redeals the same dealer and round when the bidder has no callable card", async () => {
     const bad = [49_304, 7, 8, 9] as Seed
