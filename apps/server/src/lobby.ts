@@ -1,13 +1,29 @@
+import {
+  apply,
+  createMatch,
+  legalBids,
+  legalCalls,
+  legalPlays,
+  nextDealer,
+  recordRound,
+  viewFor,
+  winners,
+} from "@hidden-partner/rules"
+import type { Action, MatchState, Rank, RoundState, Seed, Suit } from "@hidden-partner/rules"
+import type { SeatView as EngineSeatView } from "@hidden-partner/rules"
 import { config } from "./config.ts"
 import type { TimingConfig } from "./config.ts"
 import { hashPin, randomSalt, safeEqual, sha256Hex } from "./hash.ts"
 import { parseClientMessage, parseCreateBody } from "./messages.ts"
 import type { ClientMessage } from "./messages.ts"
+import { dealRound, freshSeed, playAction } from "./play.ts"
+import type { GameLogEntry } from "./play.ts"
 
 export type LobbyDeps = {
   now: () => number
   randomInt: (exclusiveMax: number) => number
   randomCode: () => string
+  randomSeed?: () => Seed
   config?: Partial<TimingConfig>
 }
 
@@ -26,9 +42,16 @@ export type SeatRecord = {
   claimCode: string | null
 }
 
+export type MatchRecord = {
+  roundNumber: number
+  match: MatchState
+  round: RoundState
+  log: GameLogEntry[]
+}
+
 export type RoomRecord = {
   code: string
-  status: "lobby" | "playing" | "expired"
+  status: "lobby" | "playing" | "paused" | "finished" | "expired"
   rounds: number
   roundsLocked: boolean
   playersLocked: boolean
@@ -40,6 +63,7 @@ export type RoomRecord = {
   nextEventId: number
   nextSeatId: number
   seats: SeatRecord[]
+  match: MatchRecord | null
 }
 
 export type RoomEvent = {
@@ -57,20 +81,37 @@ export type SeatView = {
   connected: boolean
 }
 
+export type LegalChoices = {
+  bids: { pass: boolean; amounts: number[] } | null
+  calls: { suit: Suit; rank: Rank }[] | null
+  plays: { suit: Suit; rank: Rank; copy: number }[] | null
+}
+
+export type GameView = {
+  roundNumber: number
+  seat: EngineSeatView
+  legal: LegalChoices | null
+  leaderboard: { seat: number; name: string; total: number }[] | null
+  winners: number[] | null
+}
+
 export type RoomView = {
   type: "view"
   code: string
-  status: "lobby" | "playing"
+  status: "lobby" | "playing" | "paused" | "finished"
   rounds: number
   hostSeat: number
   you: { seat: number; name: string }
   seats: SeatView[]
   claimCodes?: { seat: number; code: string }[]
+  game?: GameView
 }
 
 export type ErrorMessage = { type: "error"; message: string }
 
-export type Outbound = { connectionId: string; message: RoomView | ErrorMessage }
+export type TableNotice = { type: "redeal" } | { type: "partner"; seat: number; trickNumber: number }
+
+export type Outbound = { connectionId: string; message: RoomView | ErrorMessage | TableNotice }
 
 type CreateInput = {
   code: string
@@ -104,10 +145,16 @@ export class Lobby {
   #events: RoomEvent[] = []
   #sent: Outbound[] = []
   #pending: Outbound[] = []
+  #roundNumber = 0
+  #engineMatch: MatchState | null = null
+  #round: RoundState | null = null
+  #log: GameLogEntry[] = []
+  #randomSeed: () => Seed
 
   private constructor(dependencies: LobbyDeps) {
     this.#deps = dependencies
     this.#timing = { ...config, ...dependencies.config }
+    this.#randomSeed = dependencies.randomSeed ?? freshSeed
   }
 
   static create(input: CreateInput, dependencies: LobbyDeps): Lobby {
@@ -142,6 +189,11 @@ export class Lobby {
     lobby.#nextEventId = record.nextEventId
     lobby.#nextSeatId = record.nextSeatId
     lobby.#seats = record.seats.map((seat) => ({ ...seat }))
+    const match = record.match ? structuredClone(record.match) : null
+    lobby.#roundNumber = match?.roundNumber ?? 0
+    lobby.#engineMatch = match?.match ?? null
+    lobby.#round = match?.round ?? null
+    lobby.#log = match?.log ?? []
     return lobby
   }
 
@@ -160,6 +212,7 @@ export class Lobby {
       nextEventId: this.#nextEventId,
       nextSeatId: this.#nextSeatId,
       seats: this.#seats,
+      match: this.#matchRecord(),
     })
   }
 
@@ -181,7 +234,9 @@ export class Lobby {
     if (this.#status === "expired") return null
     const times: number[] = []
     if (this.#status === "lobby") times.push(this.#lastActivityAt + this.#timing.lobbyExpiryMs)
-    if (this.#status === "playing") times.push(this.#lastActivityAt + this.#timing.matchRetentionMs)
+    if (this.#status === "playing" || this.#status === "paused" || this.#status === "finished") {
+      times.push(this.#lastActivityAt + this.#timing.matchRetentionMs)
+    }
     if (this.#hostDisconnectedAt != null) {
       const due = this.#hostDisconnectedAt + this.#timing.hostHandoverMs
       const someoneElse = this.#seats.some((seat) => seat.connected && seat.id !== this.#hostSeatId)
@@ -219,7 +274,10 @@ export class Lobby {
       this.#expire()
       return
     }
-    if (this.#status === "playing" && now >= this.#lastActivityAt + this.#timing.matchRetentionMs) {
+    if (
+      (this.#status === "playing" || this.#status === "paused" || this.#status === "finished") &&
+      now >= this.#lastActivityAt + this.#timing.matchRetentionMs
+    ) {
       this.#expire()
       return
     }
@@ -275,7 +333,39 @@ export class Lobby {
       this.#releaseSeat(connectionId, message.seat, message)
       return
     }
-    this.#startMatch(connectionId, message)
+    if (message.type === "start_match") {
+      this.#startMatch(connectionId, message)
+      return
+    }
+    if (message.type === "place_bid") {
+      this.#placeBid(connectionId, message)
+      return
+    }
+    if (message.type === "pass") {
+      this.#pass(connectionId, message)
+      return
+    }
+    if (message.type === "call_card") {
+      this.#callCard(connectionId, message)
+      return
+    }
+    if (message.type === "play_card") {
+      this.#playCard(connectionId, message)
+      return
+    }
+    if (message.type === "next_round") {
+      this.#nextRound(connectionId, message)
+      return
+    }
+    if (message.type === "pause_match") {
+      this.#pauseMatch(connectionId, message)
+      return
+    }
+    if (message.type === "resume_match") {
+      this.#resumeMatch(connectionId, message)
+      return
+    }
+    this.#endMatch(connectionId, message)
   }
 
   async #join(connectionId: string, message: Extract<ClientMessage, { type: "join" }>): Promise<void> {
@@ -517,6 +607,18 @@ export class Lobby {
       return
     }
     if (!this.#rearranged) this.#seats = shuffleSeats(this.#seats, this.#deps.randomInt)
+    const dealer = this.#seats.findIndex((seat) => seat.id === this.#hostSeatId)
+    const playerCount = this.#seats.length
+    const dealt = dealRound({
+      playerCount,
+      dealer,
+      seed: this.#randomSeed(),
+      roundNumber: 1,
+    })
+    this.#engineMatch = createMatch(playerCount)
+    this.#roundNumber = 1
+    this.#round = dealt.round
+    this.#log = [dealt.entry]
     this.#status = "playing"
     this.#playersLocked = true
     this.#roundsLocked = true
@@ -601,10 +703,14 @@ export class Lobby {
     const seat = this.#seats[seatIndex]
     if (!seat || this.#status === "expired") return null
     const hostSeat = this.#seats.findIndex((item) => item.id === this.#hostSeatId)
+    const live =
+      this.#status === "playing" || this.#status === "paused" || this.#status === "finished"
+        ? this.#status
+        : "lobby"
     const view: RoomView = {
       type: "view",
       code: this.#code,
-      status: this.#status === "playing" ? "playing" : "lobby",
+      status: live,
       rounds: this.#rounds,
       hostSeat,
       you: { seat: seatIndex, name: seat.name },
@@ -613,6 +719,16 @@ export class Lobby {
         name: item.name,
         connected: item.connected,
       })),
+    }
+    if (this.#round && this.#engineMatch) {
+      const showStandings = this.#status === "finished" || this.#round.phase === "scored"
+      view.game = {
+        roundNumber: this.#roundNumber,
+        seat: viewFor(this.#round, seatIndex),
+        legal: this.#legal(seatIndex),
+        leaderboard: showStandings ? this.#leaderboard() : null,
+        winners: this.#status === "finished" ? winners(this.#engineMatch) : null,
+      }
     }
     if (seat.id === this.#hostSeatId) {
       const claimCodes = this.#seats.flatMap((item, index) =>
@@ -654,7 +770,207 @@ export class Lobby {
     this.#events.push(event)
   }
 
-  #pushOut(connectionId: string, message: RoomView | ErrorMessage): void {
+  #matchRecord(): MatchRecord | null {
+    if (!this.#engineMatch || !this.#round) return null
+    return {
+      roundNumber: this.#roundNumber,
+      match: this.#engineMatch,
+      round: this.#round,
+      log: this.#log,
+    }
+  }
+
+  #leaderboard(): { seat: number; name: string; total: number }[] {
+    const totals = this.#engineMatch?.totals ?? []
+    return this.#seats.map((seat, index) => ({
+      seat: index,
+      name: seat.name,
+      total: totals[index] ?? 0,
+    }))
+  }
+
+  #legal(seatIndex: number): LegalChoices | null {
+    const round = this.#round
+    if (!round || this.#status !== "playing" || round.toAct !== seatIndex) return null
+    if (round.phase === "bidding") return { bids: legalBids(round), calls: null, plays: null }
+    if (round.phase === "call") return { bids: null, calls: legalCalls(round), plays: null }
+    if (round.phase === "play") return { bids: null, calls: null, plays: legalPlays(round) }
+    return null
+  }
+
+  #playingSeat(connectionId: string): number | null {
+    if (this.#status === "lobby" || !this.#round) {
+      this.#quiet(connectionId, "The match has not started.")
+      return null
+    }
+    if (this.#status === "finished") {
+      this.#quiet(connectionId, "The match is over.")
+      return null
+    }
+    if (this.#status === "paused") {
+      this.#quiet(connectionId, "The match is paused.")
+      return null
+    }
+    const seat = this.#seats.findIndex((item) => item.connectionId === connectionId && item.playerId)
+    if (seat < 0) {
+      this.#quiet(connectionId, "You are not seated.")
+      return null
+    }
+    return seat
+  }
+
+  #hostOnly(connectionId: string): boolean {
+    if (this.#isHost(connectionId)) return true
+    this.#quiet(connectionId, "Only the host can do that")
+    return false
+  }
+
+  #placeBid(connectionId: string, message: Extract<ClientMessage, { type: "place_bid" }>): void {
+    const seat = this.#playingSeat(connectionId)
+    if (seat === null) return
+    this.#commit(connectionId, message, { type: "bid", seat, amount: message.amount })
+  }
+
+  #pass(connectionId: string, message: Extract<ClientMessage, { type: "pass" }>): void {
+    const seat = this.#playingSeat(connectionId)
+    if (seat === null) return
+    this.#commit(connectionId, message, { type: "pass", seat })
+  }
+
+  #callCard(connectionId: string, message: Extract<ClientMessage, { type: "call_card" }>): void {
+    const seat = this.#playingSeat(connectionId)
+    if (seat === null) return
+    this.#commit(connectionId, message, { type: "call", seat, card: { suit: message.suit, rank: message.rank } })
+  }
+
+  #playCard(connectionId: string, message: Extract<ClientMessage, { type: "play_card" }>): void {
+    const seat = this.#playingSeat(connectionId)
+    if (seat === null || !this.#round) return
+    const built = playAction(this.#round, seat, {
+      suit: message.suit,
+      rank: message.rank,
+      copy: message.deckIndex,
+    })
+    if ("error" in built) {
+      this.#quiet(connectionId, built.error)
+      return
+    }
+    this.#commit(connectionId, message, built.action)
+  }
+
+  #commit(connectionId: string, message: ClientMessage, action: Action): void {
+    if (!this.#round || !this.#engineMatch) {
+      this.#quiet(connectionId, "The match has not started.")
+      return
+    }
+    const result = apply(this.#round, action)
+    if (!result.ok) {
+      this.#quiet(connectionId, result.error)
+      return
+    }
+    this.#round = result.state
+    this.#log.push({ kind: "action", action })
+    this.#pushEvent(connectionId, message, "ok")
+    if (result.state.phase === "redeal") {
+      const dealt = dealRound({
+        playerCount: result.state.playerCount,
+        dealer: result.state.dealer,
+        seed: this.#randomSeed(),
+        roundNumber: this.#roundNumber,
+      })
+      this.#round = dealt.round
+      this.#log.push(dealt.entry)
+      this.#notify({ type: "redeal" })
+      this.#broadcast()
+      return
+    }
+    for (const event of result.events) {
+      if (event.type !== "partnerRevealed") continue
+      this.#notify({ type: "partner", seat: event.seat, trickNumber: event.trickNumber })
+    }
+    if (result.state.result && result.events.some((event) => event.type === "roundSettled")) {
+      this.#engineMatch = recordRound(this.#engineMatch, result.state.result)
+      if (this.#roundNumber >= this.#rounds) this.#status = "finished"
+    }
+    this.#broadcast()
+  }
+
+  #nextRound(connectionId: string, message: ClientMessage): void {
+    if (!this.#hostOnly(connectionId)) return
+    if (this.#status === "paused") {
+      this.#quiet(connectionId, "The match is paused.")
+      return
+    }
+    if (this.#status === "finished") {
+      this.#quiet(connectionId, "The match is over.")
+      return
+    }
+    if (this.#status !== "playing" || !this.#round) {
+      this.#quiet(connectionId, "The match has not started.")
+      return
+    }
+    if (this.#round.phase !== "scored") {
+      this.#quiet(connectionId, "The round is not over.")
+      return
+    }
+    const roundNumber = this.#roundNumber + 1
+    const dealt = dealRound({
+      playerCount: this.#round.playerCount,
+      dealer: nextDealer(this.#round.dealer, this.#round.playerCount),
+      seed: this.#randomSeed(),
+      roundNumber,
+    })
+    this.#roundNumber = roundNumber
+    this.#round = dealt.round
+    this.#log.push(dealt.entry)
+    this.#succeed(connectionId, message)
+  }
+
+  #pauseMatch(connectionId: string, message: ClientMessage): void {
+    if (!this.#hostOnly(connectionId)) return
+    if (this.#status !== "playing") {
+      this.#quiet(connectionId, "The match is not in progress.")
+      return
+    }
+    this.#status = "paused"
+    this.#succeed(connectionId, message)
+  }
+
+  #resumeMatch(connectionId: string, message: ClientMessage): void {
+    if (!this.#hostOnly(connectionId)) return
+    if (this.#status !== "paused") {
+      this.#quiet(connectionId, "The match is not paused.")
+      return
+    }
+    this.#status = "playing"
+    this.#succeed(connectionId, message)
+  }
+
+  #endMatch(connectionId: string, message: ClientMessage): void {
+    if (!this.#hostOnly(connectionId)) return
+    if (this.#status !== "playing" && this.#status !== "paused") {
+      this.#quiet(
+        connectionId,
+        this.#status === "finished" ? "The match is over." : "The match has not started.",
+      )
+      return
+    }
+    this.#status = "finished"
+    this.#succeed(connectionId, message)
+  }
+
+  #notify(message: TableNotice): void {
+    for (const seat of this.#seats) {
+      if (!seat.connectionId) continue
+      this.#pushOut(seat.connectionId, message)
+    }
+  }
+
+  #quiet(connectionId: string, error: string): void {
+    this.#pushOut(connectionId, { type: "error", message: error })
+  }
+
+  #pushOut(connectionId: string, message: RoomView | ErrorMessage | TableNotice): void {
     const entry = { connectionId, message }
     this.#sent.push(entry)
     this.#pending.push(entry)

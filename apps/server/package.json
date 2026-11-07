@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --port 8787",
-    "lobby-demo": "node --experimental-strip-types scripts/lobby-demo.ts"
+    "lobby-demo": "node --experimental-strip-types scripts/lobby-demo.ts",
+    "match-demo": "node --experimental-strip-types scripts/match-demo.ts"
   },
   "dependencies": {
+    "@hidden-partner/rules": "workspace:*",
     "partyserver": "^0.5.1",
     "zod": "^3.25.76"
   },
