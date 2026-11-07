@@ -18,7 +18,6 @@ export function RoundResult({
   const result = game?.seat.result
   if (!game || !result) return null
   const name = (seat: number) => view.seats.find((item) => item.seat === seat)?.name ?? `Seat ${seat + 1}`
-  const team = [result.bidder, ...result.partners]
   const host = view.you.seat === view.hostSeat
   const winners = (game.winners ?? []).map(name)
   const partners = result.partners.map(name)
@@ -32,7 +31,6 @@ export function RoundResult({
         </p>
         <p>Bidder {name(result.bidder)}. Partners {partners.length > 0 ? partners.join(", ") : "none"}.</p>
         <p>Called card {cardName(result.calledCard)}.</p>
-        <p>Team: {team.map(name).join(", ")}.</p>
         <p>
           Team points {points(result.teamPoints)} against the bid of {points(result.bid)}. Others {points(result.othersPoints)}.
         </p>
@@ -91,17 +89,33 @@ export function Leaderboard({ view }: { view: RoomView }) {
   return (
     <section className="flex flex-col gap-1">
       <h2 className="font-display text-2xl">Leaderboard</h2>
-      <ol data-testid="leaderboard" className="flex flex-col gap-1 text-lg">
-        {ranked.map(({ rank: place, row }) => {
-          const change = changes?.[row.seat]
-          return (
-            <li key={row.seat}>
-              {place}. {row.name} {points(row.total)}
-              {change === undefined ? "" : ` ${delta(change)}`}
-            </li>
-          )
-        })}
-      </ol>
+      <table data-testid="leaderboard" className="w-full border-collapse text-left text-base">
+        <thead>
+          <tr>
+            <th className="py-1 pr-2 font-semibold">Rank</th>
+            <th className="py-1 pr-2 font-semibold">Player</th>
+            <th className="py-1 pr-2 font-semibold">Total</th>
+            <th className="py-1 font-semibold">Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ranked.map(({ rank: place, row }) => {
+            const change = changes?.[row.seat]
+            const you = row.seat === view.you.seat
+            return (
+              <tr key={row.seat}>
+                <td className="py-1 pr-2">{place}</td>
+                <td className="py-1 pr-2">
+                  {row.name}
+                  {you ? " (you)" : ""}
+                </td>
+                <td className="py-1 pr-2">{points(row.total)}</td>
+                <td className="py-1">{change === undefined ? "" : delta(change)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </section>
   )
 }

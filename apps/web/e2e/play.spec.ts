@@ -41,6 +41,21 @@ async function markPage(page: Page): Promise<string> {
   return (await table.getAttribute("data-snapshot")) ?? "none"
 }
 
+function boardText(text: string): string {
+  return text.replaceAll(" (you)", "").trim()
+}
+
+async function turnChipInView(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const strip = document.querySelector("[data-testid='seats']")
+    const chip = strip?.querySelector("[data-testid='turn-chip']")
+    if (!(strip instanceof HTMLElement) || !(chip instanceof HTMLElement)) return false
+    const area = strip.getBoundingClientRect()
+    const box = chip.getBoundingClientRect()
+    return box.width > 0 && box.left >= area.left - 1 && box.right <= area.right + 1
+  })
+}
+
 async function everyoneSees(pages: Page[], heading: string): Promise<boolean> {
   for (const page of pages) {
     if ((await page.getByRole("heading", { name: heading, exact: true }).count()) === 0) return false
@@ -114,7 +129,7 @@ test("five players finish one round with the same leaderboard", async ({ browser
   const boards = []
   for (const page of table.pages) {
     await expect(page.getByRole("heading", { name: "Round result" })).toBeVisible()
-    boards.push((await page.getByTestId("leaderboard").innerText()).trim())
+    boards.push(boardText(await page.getByTestId("leaderboard").innerText()))
   }
   expect(new Set(boards).size).toBe(1)
   await table.hostContext.close()
@@ -158,7 +173,7 @@ test("a three-round match ends on the final screen", async ({ browser }) => {
   const boards = []
   for (const page of table.pages) {
     await expect(page.getByRole("heading", { name: "Match over" })).toBeVisible()
-    boards.push((await page.getByTestId("leaderboard").innerText()).trim())
+    boards.push(boardText(await page.getByTestId("leaderboard").innerText()))
   }
   expect(new Set(boards).size).toBe(1)
   await table.hostContext.close()
@@ -168,26 +183,39 @@ test("a three-round match ends on the final screen", async ({ browser }) => {
 test("nine players fit a phone-width table through one round", async ({ browser }) => {
   test.setTimeout(240_000)
   const table = await openTable(browser, 5, 9)
+  let seenTurn = ""
+  async function checkTurn() {
+    if ((await table.host.getByTestId("table").count()) === 0) return
+    const seat = await table.host.locator("[data-testid='seats'] [data-turn='true']").getAttribute("data-seat")
+    if (!seat || seat === seenTurn) return
+    seenTurn = seat
+    const size = table.host.viewportSize()
+    await table.host.setViewportSize({ width: 360, height: 740 })
+    await expect.poll(() => turnChipInView(table.host)).toBe(true)
+    if (size) await table.host.setViewportSize(size)
+  }
   await table.host.setViewportSize({ width: 360, height: 740 })
   await expect(table.host.getByRole("region", { name: "Bidding" })).toBeVisible()
+  await checkTurn()
   await table.host.screenshot({ path: "test-results/phone-9-bidding.png" })
   await table.host.setViewportSize({ width: 1280, height: 720 })
 
   let shotTrick = false
-  for (let step = 0; step < 500 && !shotTrick; step += 1) {
-    if ((await table.host.getByTestId("trick-card").count()) > 0) {
+  for (let step = 0; step < 500; step += 1) {
+    if (!shotTrick && (await table.host.getByTestId("trick-card").count()) > 0) {
       await table.host.setViewportSize({ width: 360, height: 740 })
+      await expect.poll(() => turnChipInView(table.host)).toBe(true)
       await table.host.screenshot({ path: "test-results/phone-9-trick.png" })
       await table.host.getByTestId("current-trick").screenshot({ path: "test-results/phone-9-cards.png" })
       await table.host.setViewportSize({ width: 1280, height: 720 })
       shotTrick = true
-      break
     }
+    if (await everyoneSees(table.pages, "Round result")) break
     const outcome = await playOne(table.pages, "round")
     if (outcome === "round" || outcome === "final") break
+    await checkTurn()
   }
   expect(shotTrick).toBe(true)
-  await playUntil(table.pages, "round")
   await table.host.setViewportSize({ width: 360, height: 740 })
   await expect(table.host.getByRole("heading", { name: "This round" })).toBeVisible()
   await table.host.screenshot({ path: "test-results/phone-9-result.png" })

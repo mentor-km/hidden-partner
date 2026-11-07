@@ -34,7 +34,8 @@ export function cardName(card: { suit: Suit; rank: Rank }): string {
 }
 
 export function points(value: number): string {
-  return value.toLocaleString("en-US")
+  const text = Math.abs(value).toLocaleString("en-US")
+  return value < 0 ? `−${text}` : text
 }
 
 export function delta(value: number): string {
