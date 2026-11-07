@@ -1,0 +1,16 @@
+{
+  "name": "hidden-partner",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.18.0",
+  "scripts": {
+    "test": "vitest run",
+    "simulate": "node --experimental-strip-types packages/rules/scripts/simulate.ts",
+    "calibrate": "node --experimental-strip-types packages/rules/scripts/calibrate.ts",
+    "demo": "node --experimental-strip-types packages/rules/scripts/demo.ts"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
