@@ -4,7 +4,9 @@
   "type": "module",
   "packageManager": "pnpm@12.18.0",
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "test": "vitest run",
+    "e2e": "pnpm --filter @hidden-partner/web e2e",
     "simulate": "node --experimental-strip-types packages/rules/scripts/simulate.ts",
     "calibrate": "node --experimental-strip-types packages/rules/scripts/calibrate.ts",
     "demo": "node --experimental-strip-types packages/rules/scripts/demo.ts",
