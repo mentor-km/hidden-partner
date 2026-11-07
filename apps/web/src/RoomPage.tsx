@@ -5,7 +5,8 @@ import { JoinForm } from "./JoinForm.tsx"
 import { loadLastName, rememberName, rememberedRoom, stageJoin, stagedJoin } from "./identity.ts"
 import { LobbyScreen } from "./LobbyScreen.tsx"
 import { isRoomUnavailable } from "./session.ts"
-import { Joining, Problem, Started } from "./StatusScreens.tsx"
+import { TableScreen } from "./play/TableScreen.tsx"
+import { Joining, Problem } from "./StatusScreens.tsx"
 import { useRoom } from "./useRoom.ts"
 import type { JoinRequest } from "./useRoom.ts"
 
@@ -51,7 +52,17 @@ export function RoomPage() {
     )
   }
   if (!session.view) return <Joining />
-  if (session.view.status !== "lobby") return <Started seat={session.view.you.seat} />
+  if (session.view.status !== "lobby") {
+    return (
+      <TableScreen
+        view={session.view}
+        reconnecting={session.phase === "reconnecting"}
+        notice={session.error}
+        onSend={send}
+        onHome={() => navigate("/")}
+      />
+    )
+  }
   return (
     <LobbyScreen
       view={session.view}

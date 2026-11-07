@@ -40,7 +40,7 @@ test("five players join by link, the host reorders and removes, the player rejoi
 
   const seats: number[] = []
   for (const page of [host, ...guests.map((guest) => guest.page)]) {
-    await expect(page.getByRole("heading", { name: "Match started" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Round 1" })).toBeVisible()
     const text = await page.getByTestId("your-seat").innerText()
     const seat = Number(text.match(/\d+/)?.[0])
     seats.push(seat)
